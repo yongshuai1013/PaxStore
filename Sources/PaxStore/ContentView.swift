@@ -125,6 +125,16 @@ struct ContentView: View {
                     })
                 }
                 
+                // 兜底：如果 Apple 沒返回電話號碼，給個通用 SMS 選項（server 會解析正確 ID）
+                if availablePhones.isEmpty {
+                    buttons.append(.default(Text("SMS（自動）")) {
+                        codeProvider.submitMethod(.sms(phoneID: "1"))
+                    })
+                    buttons.append(.default(Text("語音電話（自動）")) {
+                        codeProvider.submitMethod(.voice(phoneID: "1"))
+                    })
+                }
+                
                 buttons.append(.cancel(Text("取消")))
                 
                 return ActionSheet(
