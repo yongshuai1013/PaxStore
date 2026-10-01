@@ -6,6 +6,11 @@ options:
   createIntermediateGroups: true
   groupSortPosition: top
 
+packages:
+  SideSign:
+    url: https://github.com/SideStore/SideSign.git
+    branch: main
+
 targets:
   PaxStore:
     type: application
@@ -13,6 +18,8 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - Sources/PaxStore
+    dependencies:
+      - package: SideSign
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
