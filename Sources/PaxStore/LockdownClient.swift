@@ -544,15 +544,25 @@ public class LockdownClient {
     
     /// 發送 plist 消息並接收回應
     public func sendPlist(_ dict: [String: Any]) async throws -> [String: Any] {
-        guard let connection = connection else { throw LockdownError.notConnected }
+        guard socketFD >= 0 else { throw LockdownError.notConnected }
         let plistData = try PropertyListSerialization.data(fromPropertyList: dict, format: .binary, options: 0)
         var length = UInt32(plistData.count).bigEndian
         let lengthData = Data(bytes: &length, count: 4)
+        let payload = lengthData + plistData
+        // 同步 IO 放在後台線程，避免阻塞
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            connection.send(content: lengthData + plistData, completion: .contentProcessed { error in
-                if let error = error { continuation.resume(throwing: error) }
-                else { continuation.resume() }
-            })
+            DispatchQueue.global().async {
+                do {
+                    if self.useSSL {
+                        try self.sslWrite(payload)
+                    } else {
+                        try self.sendRaw(payload)
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
         let lengthResponse = try await receive(length: 4)
         let responseLength = lengthResponse.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
@@ -562,25 +572,23 @@ public class LockdownClient {
         }
         return responseDict
     }
-    
+
     private func receive(length: Int) async throws -> Data {
-        guard let connection = connection else { throw LockdownError.notConnected }
+        guard socketFD >= 0 else { throw LockdownError.notConnected }
         return try await withCheckedThrowingContinuation { continuation in
-            var acc = Data()
-            func recv() {
-                connection.receive(minimumIncompleteLength: 1, maximumLength: length - acc.count) { data, _, isComplete, error in
-                    if let error = error { continuation.resume(throwing: error); return }
-                    if let data = data { acc.append(data) }
-                    if acc.count >= length {
-                        continuation.resume(returning: acc.prefix(length))
-                    } else if isComplete {
-                        continuation.resume(throwing: LockdownError.incompleteData)
+            DispatchQueue.global().async {
+                do {
+                    let data: Data
+                    if self.useSSL {
+                        data = try self.sslRead(length: length)
                     } else {
-                        recv()
+                        data = try self.recvRaw(length: length)
                     }
+                    continuation.resume(returning: data)
+                } catch {
+                    continuation.resume(throwing: error)
                 }
             }
-            recv()
         }
     }
     
@@ -601,8 +609,15 @@ public class LockdownClient {
     public var identity: SecIdentity? { pairIdentity }
     
     public func disconnect() {
-        connection?.cancel()
-        connection = nil
+        if let ctx = sslContext {
+            SSLClose(ctx)
+            self.sslContext = nil
+        }
+        if socketFD >= 0 {
+            close(socketFD)
+            socketFD = -1
+        }
+        useSSL = false
     }
 }
 
