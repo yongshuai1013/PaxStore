@@ -84,7 +84,7 @@ struct SigningFlowView: View {
             }
         }
         .navigationTitle("簽名 IPA")
-        .fileImporter(isPresented: $isPickingIPA, allowedContentTypes: [.init(filenameExtension: "ipa") ?? .data]) { result in
+        .fileImporter(isPresented: $isPickingIPA, allowedContentTypes: [.data, .zip, .archive], allowsMultipleSelection: false) { result in
             switch result {
             case .success(let url):
                 // 複製到沙盒內
