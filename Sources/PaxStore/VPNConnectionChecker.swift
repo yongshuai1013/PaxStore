@@ -99,6 +99,44 @@ public class VPNConnectionChecker {
         return nil
     }
 
+    /// 獲取 Wi-Fi (en0) 接口的公網 IPv6 地址（排除 link-local fe80::/10）
+    public func discoverWiFiIPv6() -> String? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(head) }
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let p = cursor {
+            let e = p.pointee
+            defer { cursor = e.ifa_next }
+            guard let namePtr = e.ifa_name, String(cString: namePtr) == "en0" else { continue }
+            let flags = Int32(e.ifa_flags)
+            guard (flags & IFF_UP) != 0, (flags & IFF_RUNNING) != 0 else { continue }
+            guard let addrPtr = e.ifa_addr, addrPtr.pointee.sa_family == UInt8(AF_INET6) else { continue }
+            if let ip = ipv4String(addrPtr), !ip.lowercased().hasPrefix("fe80") {
+                return ip
+            }
+        }
+        return nil
+    }
+
+    /// 診斷用：試綁定 0.0.0.0:port；若 EADDRINUSE 說明已有服務在監聽該端口
+    private func isPortInUse(port: UInt16) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = INADDR_ANY
+        let r = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if r == 0 { return false }
+        return errno == EADDRINUSE
+    }
+
     private func probe(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
         await withCheckedContinuation { cont in
             guard let p = NWEndpoint.Port(rawValue: port) else {
@@ -168,6 +206,10 @@ public class VPNConnectionChecker {
         if !candidates.contains("127.0.0.1") { candidates.append("127.0.0.1") }
         // 候選 4：手動輸入的地址
         add(gatewayHost)
+        // 候選 5：IPv6（之前只掃了 v4；若 lockdownd 綁 [::]，v6 環回可能通）
+        if !candidates.contains("::1") { candidates.append("::1") }
+        let wifiIP6 = discoverWiFiIPv6()
+        if let w6 = wifiIP6, !candidates.contains(w6) { candidates.append(w6) }
 
         // 排除接口自己的地址
         let localIPs = Set(tunnels.map { $0.localIP })
@@ -184,6 +226,10 @@ public class VPNConnectionChecker {
         if let wifiIP = wifiIP {
             diag += " Wi-Fi直連候選:\(wifiIP)"
         }
+        if let w6 = wifiIP6 {
+            diag += " Wi-Fi v6候選:\(w6)"
+        }
+        diag += isPortInUse(port: gatewayPort) ? " [bind:端口被佔用，有服務在聽]" : " [bind:端口空閒]" 
         if candidates.isEmpty {
             lastDiagnostic = diag + " 無候選地址可探測。"
             return false
