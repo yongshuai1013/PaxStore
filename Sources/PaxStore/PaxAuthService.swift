@@ -1,6 +1,13 @@
 import Foundation
 import SideSign
 
+/// 2FA 方式選擇
+public enum TwoFactorMethod: Sendable {
+    case trustedDevice
+    case sms(phoneID: String)
+    case voice(phoneID: String)
+}
+
 /// 2FA 代碼提供者：handler 在同一次 authenticate() 內等待 UI 輸入，不會重發 SMS
 public final class TwoFACodeProvider: Sendable {
     private let lock = NSLock()
@@ -8,12 +15,61 @@ public final class TwoFACodeProvider: Sendable {
     private var pendingCode: String?
     private var _onCodeRequired: (@Sendable () -> Void)?
     
+    // 方式選擇
+    private var methodContinuation: CheckedContinuation<TwoFactorMethod, Never>?
+    private var pendingMethod: TwoFactorMethod?
+    private var _onMethodRequired: (@Sendable ([TrustedPhoneNumber], TwoFactorDeliveryMode) -> Void)?
+    
     public init() {}
     
     /// UI 設置「需要驗證碼時」的回調（用來顯示輸入框）
     public var onCodeRequired: (@Sendable () -> Void)? {
         get { lock.withLock { _onCodeRequired } }
         set { lock.withLock { _onCodeRequired = newValue } }
+    }
+    
+    /// UI 設置「需要選擇 2FA 方式時」的回調
+    public var onMethodRequired: (@Sendable ([TrustedPhoneNumber], TwoFactorDeliveryMode) -> Void)? {
+        get { lock.withLock { _onMethodRequired } }
+        set { lock.withLock { _onMethodRequired = newValue } }
+    }
+    
+    /// Handler 調用：等待用戶選擇 2FA 方式
+    public func awaitMethod(phoneNumbers: [TrustedPhoneNumber], preferred: TwoFactorDeliveryMode) async -> TwoFactorMethod {
+        if let callback = lock.withLock({ _onMethodRequired }) {
+            callback(phoneNumbers, preferred)
+        }
+        if let method = lock.withLock({ () -> TwoFactorMethod? in
+            let m = pendingMethod
+            pendingMethod = nil
+            return m
+        }) {
+            return method
+        }
+        return await withCheckedContinuation { cont in
+            lock.withLock {
+                if let method = pendingMethod {
+                    pendingMethod = nil
+                    cont.resume(returning: method)
+                } else {
+                    methodContinuation = cont
+                }
+            }
+        }
+    }
+    
+    /// UI 調用：用戶選了方式
+    public func submitMethod(_ method: TwoFactorMethod) {
+        let cont: CheckedContinuation<TwoFactorMethod, Never>? = lock.withLock {
+            if let c = methodContinuation {
+                methodContinuation = nil
+                return c
+            } else {
+                pendingMethod = method
+                return nil
+            }
+        }
+        cont?.resume(returning: method)
     }
     
     /// Handler 調用：等待用戶輸入驗證碼（只會在同一次登入內等待，不重發 SMS）
@@ -102,27 +158,18 @@ public final class PaxAuthService {
                 return .verificationCode(cleanCode)
             case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
                 print("[PaxStore] Apple 建議的 2FA 方式: \(preferredMode), 可用電話: \(phoneNumbers.count)")
-                // 尊重 Apple 的建議順序，但優先 SMS（用戶明確要測 SMS）
-                // 如果 Apple 建議 trustedDevice 且有可用設備，先試 trustedDevice
-                switch preferredMode {
-                case .sms, .voice:
-                    if let firstPhone = phoneNumbers.first {
-                        let mode = preferredMode == .voice ? "voice" : "sms"
-                        print("[PaxStore] 請求 \(mode): \(firstPhone.number)")
-                        if mode == "voice" {
-                            return .requestVoice(phoneID: firstPhone.id)
-                        } else {
-                            return .requestSMS(phoneID: firstPhone.id)
-                        }
-                    }
-                    return .requestTrustedDevice
+                // 彈窗讓用戶手動選擇（跟 SideStore 一樣）
+                let method = await codeProvider.awaitMethod(phoneNumbers: phoneNumbers, preferred: preferredMode)
+                switch method {
                 case .trustedDevice:
-                    // 用戶反饋設備碼不彈，直接用 SMS
-                    if let firstPhone = phoneNumbers.first {
-                        print("[PaxStore] 設備碼不彈，改用 SMS: \(firstPhone.number)")
-                        return .requestSMS(phoneID: firstPhone.id)
-                    }
+                    print("[PaxStore] 用戶選擇: 受信任設備")
                     return .requestTrustedDevice
+                case .sms(let phoneID):
+                    print("[PaxStore] 用戶選擇: SMS (\(phoneID))")
+                    return .requestSMS(phoneID: phoneID)
+                case .voice(let phoneID):
+                    print("[PaxStore] 用戶選擇: 語音 (\(phoneID))")
+                    return .requestVoice(phoneID: phoneID)
                 }
             }
         }
