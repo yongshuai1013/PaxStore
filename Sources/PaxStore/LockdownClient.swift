@@ -362,15 +362,33 @@ public class LockdownClient {
         try tcpConnect()
 
         // 階段2: 明文握手
-        let qt = try await sendPlist(["Label": "PaxStore", "Request": "QueryType"])
+        let qt: [String: Any]
+        do {
+            qt = try await sendPlist(["Label": "PaxStore", "Request": "QueryType"])
+        } catch {
+            throw LockdownError.handshakeFailed("QueryType 階段連接斷開: \(error)")
+        }
         guard (qt["Type"] as? String) == "com.apple.mobile.lockdown" else {
             throw LockdownError.handshakeFailed("QueryType 回應異常")
         }
-        let vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": plist])
+        // PairRecord 不能含私鑰：只發設備需要的欄位
+        var pairRecord = plist
+        pairRecord.removeValue(forKey: "HostPrivateKey")
+        let vp: [String: Any]
+        do {
+            vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": pairRecord])
+        } catch {
+            throw LockdownError.handshakeFailed("ValidatePair 階段連接斷開: \(error)")
+        }
         guard (vp["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("ValidatePair 失敗: \(vp)")
         }
-        let ss = try await sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
+        let ss: [String: Any]
+        do {
+            ss = try await sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
+        } catch {
+            throw LockdownError.handshakeFailed("StartSession 階段連接斷開: \(error)")
+        }
         guard (ss["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("StartSession 失敗: \(ss)")
         }
