@@ -28,14 +28,45 @@ public class LockdownClient {
         guard let certDER = derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
         guard let keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
         
-        // 按 PEM 頭判斷：RSA PRIVATE KEY = PKCS#1（需包成 PKCS#8），PRIVATE KEY = PKCS#8（直接用）
-        var keyData = keyDER
-        if hostKeyPEM.contains("RSA PRIVATE KEY") {
-            guard let wrapped = wrapPKCS1inPKCS8(keyDER) else {
-                throw LockdownError.tlsSetupFailed("PKCS#1 包裝失敗")
+        // 診斷：PEM 頭＋DER 結構
+        let pemHeader = hostKeyPEM.components(separatedBy: .newlines).first(where: { $0.hasPrefix("-----") }) ?? "無PEM頭"
+        let derHex = keyDER.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
+        
+        // 嘗試兩種：1) 直接導入（PKCS#8） 2) 包裝後導入（PKCS#1→PKCS#8）
+        var keyData: Data? = nil
+        var errMsgs: [String] = []
+        errMsgs.append("[\(pemHeader)] DER \(keyDER.count)字節 頭:\(derHex)")
+        
+        // 方式1：直接導入
+        let keyAttrs: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+        ]
+        var err1: Unmanaged<CFError>?
+        if let k1 = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err1) {
+            _ = k1
+            keyData = keyDER
+            errMsgs.append("直接導入成功")
+        } else {
+            errMsgs.append("直接導入失敗: \(err1?.takeRetainedValue().localizedDescription ?? "?")")
+            // 方式2：包裝後導入
+            if let wrapped = wrapPKCS1inPKCS8(keyDER) {
+                var err2: Unmanaged<CFError>?
+                if SecKeyCreateWithData(wrapped as CFData, keyAttrs as CFDictionary, &err2) != nil {
+                    keyData = wrapped
+                    errMsgs.append("包裝後導入成功 (\(wrapped.count)字節)")
+                } else {
+                    errMsgs.append("包裝後導入失敗: \(err2?.takeRetainedValue().localizedDescription ?? "?")")
+                }
+            } else {
+                errMsgs.append("PKCS#1 包裝失敗")
             }
-            keyData = wrapped
         }
+        
+        guard let finalKeyData = keyData else {
+            throw LockdownError.tlsSetupFailed("私鑰導入失敗\n" + errMsgs.joined(separator: "\n"))
+        }
+        var keyData2 = finalKeyData
         
         // 先清掉舊的（避免重複）
         let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
@@ -45,15 +76,11 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰（不指定 keySize，讓系統自動識別）
-        let keyAttrs: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
-            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-        ]
+        // 導入私鑰（已在上面成功創建，這裡重新獲取以存入 Keychain）
         var err: Unmanaged<CFError>?
-        guard let secKey = SecKeyCreateWithData(keyData as CFData, keyAttrs as CFDictionary, &err) else {
+        guard let secKey = SecKeyCreateWithData(keyData2 as CFData, keyAttrs as CFDictionary, &err) else {
             let msg = err?.takeRetainedValue().localizedDescription ?? "未知錯誤"
-            throw LockdownError.tlsSetupFailed("私鑰導入失敗: \(msg) (DER \(keyData.count) 字節)")
+            throw LockdownError.tlsSetupFailed("私鑰二次導入失敗: \(msg)")
         }
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
