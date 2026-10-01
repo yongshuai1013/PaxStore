@@ -11,6 +11,8 @@ public class VPNConnectionChecker {
     
     private init() {}
     
+    public var lastDiagnostic: String = ""
+    
     /// 檢測 VPN 是否連通（TCP 連接到 lockdownd 端口）
     public func checkConnection(timeout: TimeInterval = 10) async -> Bool {
         return await withCheckedContinuation { continuation in
@@ -34,16 +36,18 @@ public class VPNConnectionChecker {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    print("[VPN] Connected to \(self.gatewayHost):\(self.gatewayPort)")
+                    self.lastDiagnostic = "連接成功"
                     resume(true)
                 case .failed(let error):
-                    print("[VPN] Failed: \(error)")
+                    self.lastDiagnostic = "失敗: \(error.localizedDescription)"
                     resume(false)
                 case .cancelled:
-                    print("[VPN] Cancelled")
+                    self.lastDiagnostic = "已取消"
                     resume(false)
                 case .waiting(let error):
-                    print("[VPN] Waiting: \(error)")
+                    self.lastDiagnostic = "等待中: \(error.localizedDescription)"
+                case .preparing:
+                    self.lastDiagnostic = "準備中..."
                 default:
                     break
                 }
@@ -53,7 +57,7 @@ public class VPNConnectionChecker {
             
             // 超時
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                print("[VPN] Timeout after \(timeout)s")
+                self.lastDiagnostic = "超時 (\(Int(timeout))秒無回應)"
                 resume(false)
             }
         }
