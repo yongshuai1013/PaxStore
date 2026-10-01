@@ -47,27 +47,38 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰（最小屬性集，讓系統自己判斷）
-        let keyAttrs: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
-            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-        ]
-        var err: Unmanaged<CFError>?
-        guard let secKey = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err) else {
-            let msg = err?.takeRetainedValue().localizedDescription ?? "未知錯誤"
-            throw LockdownError.tlsSetupFailed("私鑰導入失敗: \(msg)\n" + diag.joined(separator: "\n"))
-        }
-        diag.append("私鑰導入成功")
-        
+        // 導入私鑰：繞開 SecKeyCreateWithData，直接用 SecItemAdd 存 PKCS#8 再取回
+        // （SecKeyCreateWithData 在此設備上對有效鑰匙也報 -50）
+        let tagData = "PaxStorePairing".data(using: .utf8)!
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
-            kSecValueRef as String: secKey,
+            kSecAttrApplicationTag as String: tagData,
+            kSecValueData as String: keyDER,
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
         var status = SecItemAdd(addKey as CFDictionary, nil)
-        if status == errSecDuplicateItem { status = errSecSuccess }
-        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)") }
+        if status == errSecDuplicateItem {
+            SecItemDelete(addKey as CFDictionary)
+            status = SecItemAdd(addKey as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else {
+            throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)\n" + diag.joined(separator: "\n"))
+        }
+        diag.append("私鑰已存 Keychain")
+        // 取回 SecKey
+        let getKey: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tagData,
+            kSecReturnRef as String: true,
+        ]
+        var item: CFTypeRef?
+        status = SecItemCopyMatching(getKey as CFDictionary, &item)
+        guard status == errSecSuccess, let secKey = item as! SecKey? else {
+            throw LockdownError.tlsSetupFailed("私鑰取回失敗: \(status)\n" + diag.joined(separator: "\n"))
+        }
+        diag.append("私鑰導入成功")
         
         // 導入證書
         guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
