@@ -5,6 +5,7 @@ import SideSign
 public final class TwoFACodeProvider: Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<String, Never>?
+    private var pendingCode: String?
     private var _onCodeRequired: (@Sendable () -> Void)?
     
     public init() {}
@@ -21,19 +22,38 @@ public final class TwoFACodeProvider: Sendable {
         if let callback = lock.withLock({ _onCodeRequired }) {
             callback()
         }
+        // 檢查是否有已提交但還沒取走的碼（處理競態）
+        if let code = lock.withLock({ () -> String? in
+            let c = pendingCode
+            pendingCode = nil
+            return c
+        }) {
+            return code
+        }
         return await withCheckedContinuation { cont in
             lock.withLock {
-                continuation = cont
+                // 再次檢查（雙重檢查鎖定）
+                if let code = pendingCode {
+                    pendingCode = nil
+                    cont.resume(returning: code)
+                } else {
+                    continuation = cont
+                }
             }
         }
     }
     
-    /// UI 調用：用戶輸完碼，喚醒等待中的 handler
+    /// UI 調用：用戶輸完碼，喚醒等待中的 handler（或暫存，等 handler 來取）
     public func submitCode(_ code: String) {
         let cont: CheckedContinuation<String, Never>? = lock.withLock {
-            let c = continuation
-            continuation = nil
-            return c
+            if let c = continuation {
+                continuation = nil
+                return c
+            } else {
+                // handler 還沒掛起，先存起來
+                pendingCode = code
+                return nil
+            }
         }
         cont?.resume(returning: code)
     }
