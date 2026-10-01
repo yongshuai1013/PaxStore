@@ -9,13 +9,11 @@ extension PaxSigningService {
         let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         
-        // 先查找
         let existing = try await portal.fetchAppIDs(for: team, session: session)
         if let found = existing.first(where: { $0.bundleIdentifier == bundleIdentifier }) {
             return found
         }
         
-        // 不存在則創建
         return try await portal.addAppID(withName: name, bundleIdentifier: bundleIdentifier, team: team, session: session)
     }
     
@@ -39,7 +37,7 @@ extension PaxSigningService {
             return found
         }
         
-        return try await portal.addAppGroup(withIdentifier: identifier, name: name, team: team, session: session)
+        return try await portal.addAppGroup(name: name, groupIdentifier: identifier, team: team, session: session)
     }
     
     /// 指派 App Groups 到 App ID
@@ -49,19 +47,33 @@ extension PaxSigningService {
         return try await portal.assignAppGroups(groups, to: appID, team: team, session: session)
     }
     
-    /// 獲取 provisioning profile（查找或創建，然後下載）
-    public func provisioningProfile(for appID: SideSign.AppID, team: SideSign.Team) async throws -> Data {
+    /// 獲取 provisioning profile 數據（查找或創建，然後下載）
+    public func provisioningProfileData(for appID: SideSign.AppID, team: SideSign.Team) async throws -> Data {
         let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         
-        // 查找現有 profile
+        // 查找現有
         let existing = try await portal.listProvisioningProfiles(for: team, session: session)
         if let found = existing.first(where: { $0.bundleIdentifier == appID.bundleIdentifier }) {
-            return try await portal.downloadProvisioningProfile(found, session: session)
+            let downloaded = try await portal.downloadProvisioningProfile(profileID: found.identifier, team: team, session: session)
+            return downloaded.data
         }
         
-        // 創建新的
-        let newProfile = try await portal.createProvisioningProfile(for: appID, team: team, session: session)
-        return try await portal.downloadProvisioningProfile(newProfile, session: session)
+        // 需要證書 ID 來創建 profile
+        let certs = try await portal.fetchCertificates(for: team, session: session)
+        guard let cert = certs.first else {
+            throw SigningError.certificateFailed("沒有可用證書")
+        }
+        
+        let newProfile = try await portal.createProvisioningProfile(
+            name: "PaxStore \(appID.bundleIdentifier)",
+            appID: appID,
+            certificateIDs: [cert.identifier],
+            deviceIDs: [],
+            team: team,
+            session: session
+        )
+        let downloaded = try await portal.downloadProvisioningProfile(profileID: newProfile.identifier, team: team, session: session)
+        return downloaded.data
     }
 }
