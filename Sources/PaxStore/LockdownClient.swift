@@ -613,11 +613,14 @@ public class LockdownClient {
     
     /// 啟動服務
     public func startService(_ serviceName: String) async throws -> (port: UInt16, sslEnabled: Bool) {
-        var req: [String: Any] = ["Label": "PaxStore", "Request": "StartService", "Service": serviceName]
+        // 對照 idevice：只取 Port，不檢查 Result
+        var req: [String: Any] = ["Request": "StartService", "Service": serviceName]
         if let sid = sessionID { req["SessionID"] = sid }
         let response = try await sendPlist(req)
-        guard let result = response["Result"] as? String, result == "Success",
-              let portRaw = response["Port"] as? Int ?? (response["Port"] as? UInt16).map({ Int($0) }) else {
+        if let err = response["Error"] as? String {
+            throw LockdownError.handshakeFailed("StartService \(serviceName) 報錯: \(err)")
+        }
+        guard let portRaw = response["Port"] as? Int ?? (response["Port"] as? UInt16).map({ Int($0) }) else {
             throw LockdownError.serviceStartFailed(serviceName)
         }
         let sslEnabled = (response["EnableServiceSSL"] as? Bool) ?? false
