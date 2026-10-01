@@ -49,6 +49,22 @@ struct SigningFlowView: View {
                 }
             }
             
+            if showDeviceRegistration {
+                Section(header: Text("註冊設備")) {
+                    Text("團隊沒有註冊的設備，創建 profile 需要至少一個")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                    TextField("設備 UDID", text: $deviceUDID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("設備名稱", text: $deviceName)
+                    Button("註冊設備") {
+                        Task { await registerDevice() }
+                    }
+                    .disabled(deviceUDID.isEmpty || selectedTeam == nil)
+                }
+            }
+            
             Section(header: Text("3. 簽名")) {
                 Button(isSigning ? "簽名中..." : "開始簽名") {
                     Task { await startSigning() }
