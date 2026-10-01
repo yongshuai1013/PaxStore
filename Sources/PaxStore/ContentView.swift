@@ -65,7 +65,15 @@ struct ContentView: View {
                     }
                     
                     Section(footer: Text("VPN 外置：請確保外部 VPN 已連接（10.7.0.1 可達）")) {
-                        EmptyView()
+                        NavigationLink(destination: AnisetteServerView()) {
+                            HStack {
+                                Text("Anisette 伺服器")
+                                Spacer()
+                                Text(AnisetteServerManager.shared.selectedServer.name)
+                                    .foregroundColor(.gray)
+                                    .font(.caption)
+                            }
+                        }
                     }
                 }
             }
