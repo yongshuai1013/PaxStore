@@ -86,7 +86,11 @@ struct SigningFlowView: View {
         .navigationTitle("簽名 IPA")
         .fileImporter(isPresented: $isPickingIPA, allowedContentTypes: [.data, .zip, .archive], allowsMultipleSelection: false) { result in
             switch result {
-            case .success(let url):
+            case .success(let urls):
+                guard let url = urls.first else {
+                    errorMessage = "未選擇文件"
+                    return
+                }
                 // 複製到沙盒內
                 let dest = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
                 try? FileManager.default.removeItem(at: dest)
