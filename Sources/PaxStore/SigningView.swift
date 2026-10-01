@@ -9,7 +9,8 @@ struct SigningView: View {
     @State private var activeKeyStore: SideSign.KeyStore?
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var showRevokeConfirm: SideSign.X509Certificate?
+    @State private var certToRevoke: SideSign.X509Certificate?
+    @State private var showRevokeAlert = false
     
     var body: some View {
         Form {
@@ -83,7 +84,8 @@ struct SigningView: View {
                                 certificate: cert,
                                 hasPrivateKey: activeKeyStore?.certificate.serialNumberHex == cert.serialNumberHex,
                                 onRevoke: {
-                                    showRevokeConfirm = cert
+                                    certToRevoke = cert
+                                    showRevokeAlert = true
                                 }
                             )
                         }
@@ -113,17 +115,17 @@ struct SigningView: View {
             activeKeyStore = PaxSigningService.shared.loadActiveCertificate()
             loadTeams()
         }
-        .alert(item: $showRevokeConfirm) { cert in
-            Alert(
-                title: Text("撤銷證書？"),
-                message: Text("確定要撤銷 \(cert[.machineName] ?? cert.serialNumberHex) 嗎？此操作不可恢復。"),
-                primaryButton: .destructive(Text("撤銷")) {
-                    if let team = selectedTeam {
-                        revokeCertificate(cert, for: team)
-                    }
-                },
-                secondaryButton: .cancel(Text("取消"))
-            )
+        .alert("撤銷證書？", isPresented: $showRevokeAlert) {
+            Button("撤銷", role: .destructive) {
+                if let cert = certToRevoke, let team = selectedTeam {
+                    revokeCertificate(cert, for: team)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            if let cert = certToRevoke {
+                Text("確定要撤銷 \(cert[.machineName] ?? cert.serialNumberHex) 嗎？此操作不可恢復。")
+            }
         }
     }
     
@@ -273,8 +275,3 @@ struct CertificateRow: View {
     }
 }
 
-// MARK: - X509Certificate Alert support
-
-extension SideSign.X509Certificate: Identifiable {
-    public var id: String { serialNumberHex }
-}
