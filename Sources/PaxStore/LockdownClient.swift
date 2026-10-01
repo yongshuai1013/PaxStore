@@ -78,10 +78,11 @@ public class LockdownClient {
         if status != errSecSuccess {
             throw LockdownError.tlsSetupFailed("私鑰取回失敗 status=\(status)\n" + diag.joined(separator: "\n"))
         }
-        diag.append("取回 status=0，item類型=\(type(of: keyItem))")
-        guard let secKey = keyItem as? SecKey else {
-            throw LockdownError.tlsSetupFailed("取回的不是 SecKey: \(type(of: keyItem))\n" + diag.joined(separator: "\n"))
+        guard let keyItem = keyItem else {
+            throw LockdownError.tlsSetupFailed("取回 status=0 但 item 為 nil\n" + diag.joined(separator: "\n"))
         }
+        diag.append("取回 item 類型=\(type(of: keyItem))")
+        let secKey = keyItem as! SecKey
         diag.append("私鑰導入成功")
         
         // 導入證書
