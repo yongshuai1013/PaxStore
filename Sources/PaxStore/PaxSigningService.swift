@@ -99,31 +99,36 @@ public final class PaxSigningService {
     
     // MARK: - Active Local Certificate
     
-    private let activeCertKey = "paxstore.signing.activeCertSerial"
-    private let activeKeyKey = "paxstore.signing.activePrivateKey"
+    private let activeCertP12Key = "paxstore.signing.activeCertP12"
     
-    /// 保存激活的本地證書序列號和私鑰
-    /// KeyStore 本身不是 Codable，只存序列號（String）和私鑰（Data）
+    /// 保存激活的本地證書（P12 格式，含私鑰）
+    /// KeyStore 本身不是 Codable，用 exportP12() 轉成 Data 存
     public func saveActiveCertificate(_ keyStore: SideSign.KeyStore) {
-        KeychainHelper.saveString(keyStore.certificate.serialNumberHex, forKey: activeCertKey)
-        KeychainHelper.save(keyStore.privateKey, forKey: activeKeyKey)
-        print("[PaxStore] 已保存激活證書: \(keyStore.certificate.serialNumberHex)")
+        do {
+            let p12Data = try keyStore.exportP12()
+            KeychainHelper.save(p12Data, forKey: activeCertP12Key)
+            print("[PaxStore] 已保存激活證書: \(keyStore.certificate.serialNumberHex)")
+        } catch {
+            print("[PaxStore] 保存證書失敗: \(error)")
+        }
     }
     
-    /// 讀取激活的本地證書序列號
+    /// 讀取激活的本地證書
+    public func loadActiveCertificate() -> SideSign.KeyStore? {
+        guard let p12Data = KeychainHelper.load(forKey: activeCertP12Key) else {
+            return nil
+        }
+        return try? SideSign.KeyStore(p12Data: p12Data)
+    }
+    
+    /// 讀取激活證書的序列號（用於 UI 判斷）
     public func loadActiveCertificateSerial() -> String? {
-        return KeychainHelper.loadString(forKey: activeCertKey)
-    }
-    
-    /// 讀取激活證書的私鑰
-    public func loadActivePrivateKey() -> Data? {
-        return KeychainHelper.load(forKey: activeKeyKey)
+        return loadActiveCertificate()?.certificate.serialNumberHex
     }
     
     /// 清除激活的本地證書
     public func clearActiveCertificate() {
-        KeychainHelper.delete(forKey: activeCertKey)
-        KeychainHelper.delete(forKey: activeKeyKey)
+        KeychainHelper.delete(forKey: activeCertP12Key)
         print("[PaxStore] 已清除激活證書")
     }
     
