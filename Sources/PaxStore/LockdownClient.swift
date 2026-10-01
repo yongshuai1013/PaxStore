@@ -371,9 +371,11 @@ public class LockdownClient {
         guard (qt["Type"] as? String) == "com.apple.mobile.lockdown" else {
             throw LockdownError.handshakeFailed("QueryType 回應異常")
         }
-        // PairRecord 不能含私鑰：只發設備需要的欄位
-        var pairRecord = plist
-        pairRecord.removeValue(forKey: "HostPrivateKey")
+        // PairRecord 只含標準五欄位：私鑰、EscrowBag、MAC、UDID 都不發
+        var pairRecord: [String: Any] = [:]
+        for key in ["DeviceCertificate", "HostCertificate", "HostID", "RootCertificate", "SystemBUID"] {
+            if let v = plist[key] { pairRecord[key] = v }
+        }
         let vp: [String: Any]
         do {
             vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": pairRecord])
