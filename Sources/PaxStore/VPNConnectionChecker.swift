@@ -164,7 +164,8 @@ public class VPNConnectionChecker {
         let wifiIP = discoverWiFiIP()
         if let wifiIP = wifiIP { add(wifiIP) }
         // 候選 3b：localhost（若 lockdownd 綁 0.0.0.0，127.0.0.1 直達；沙盒對 localhost 無回環限制）
-        add("127.0.0.1")
+        // 注意：127.0.0.1 會被上面的本機地址過濾掉，這裡直接加入
+        if !candidates.contains("127.0.0.1") { candidates.append("127.0.0.1") }
         // 候選 4：手動輸入的地址
         add(gatewayHost)
 
