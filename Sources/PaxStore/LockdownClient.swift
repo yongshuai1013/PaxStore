@@ -371,6 +371,12 @@ public class LockdownClient {
         guard (qt["Type"] as? String) == "com.apple.mobile.lockdown" else {
             throw LockdownError.handshakeFailed("QueryType 回應異常")
         }
+        // 校驗配對檔 UDID 是否與設備一致
+        if let deviceUDID = qt["UniqueDeviceID"] as? String,
+           let fileUDID = plist["UDID"] as? String,
+           deviceUDID.lowercased() != fileUDID.lowercased() {
+            throw LockdownError.handshakeFailed("配對檔 UDID 與設備不符：配對檔=\(fileUDID)，設備=\(deviceUDID)，請導入正確的配對檔")
+        }
         // PairRecord 只含標準五欄位：私鑰、EscrowBag、MAC、UDID 都不發
         var pairRecord: [String: Any] = [:]
         for key in ["DeviceCertificate", "HostCertificate", "HostID", "RootCertificate", "SystemBUID"] {
