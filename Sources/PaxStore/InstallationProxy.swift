@@ -100,11 +100,6 @@ public class InstallationProxy {
         }
     }
     
-    public func disconnect() {
-        serviceConnection?.cancel()
-        serviceConnection = nil
-    }
-    
     private func sendPlist(_ dict: [String: Any], over connection: NWConnection) async throws {
         let plistData = try PropertyListSerialization.data(
             fromPropertyList: dict,
