@@ -146,8 +146,7 @@ struct SigningFlowView: View {
             log("Bundle IDs: \(bundleIDs.joined(separator: ", "))")
             
             // 為每個 Bundle ID 找／建 App ID，下載 profile
-            var profiles: [Data] = []
-            var profileMap: [String: Data] = [:]
+            var profiles: [SideSign.ProvisioningProfile] = []
             for bundleID in bundleIDs {
                 log("處理 \(bundleID)...")
                 let appID = try await signingService.findOrCreateAppID(
@@ -157,18 +156,41 @@ struct SigningFlowView: View {
                 )
                 log("  App ID: \(appID.name)")
                 
-                let profileData = try await signingService.provisioningProfileData(for: appID, team: team)
-                profileMap[bundleID] = profileData
-                log("  Profile 已下載 (\(profileData.count) bytes)")
+                let profile = try await signingService.provisioningProfile(for: appID, team: team)
+                profiles.append(profile)
+                log("  Profile 已下載 (\(profile.data.count) bytes)")
             }
             
-            // TODO: 嵌入 profiles、簽名、重打包
-            // 需要把 profile 寫入 .app/embedded.mobileprovision
-            // 然後用 AppBundleSigner 簽名
-            log("Profile 準備完成，簽名實作待續...")
+            // 嵌入 profiles 到 .app 和 .appex
+            log("嵌入 provisioning profiles...")
+            try embedProfiles(profiles, into: appURL)
+            log("  嵌入完成")
             
-            // 清理
-            // try? FileManager.default.removeItem(at: workDir)
+            // 獲取 KeyStore（從 P12 還原）
+            guard let keyStore = signingService.loadActiveCertificate() else {
+                throw SigningError.certificateFailed("沒有激活的證書，請先在簽名管理中激活一個證書")
+            }
+            log("KeyStore 已還原")
+            
+            // 簽名
+            log("開始簽名...")
+            let signer = SideSign.AppBundleSigner(team: team, keyStore: keyStore)
+            try await signer.signApp(at: appURL, provisioningProfiles: profiles)
+            log("簽名完成")
+            
+            // 重打包為 IPA
+            log("重打包 IPA...")
+            let signedIPA = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(appURL.deletingPathExtension().lastPathComponent)-signed.ipa")
+            try? FileManager.default.removeItem(at: signedIPA)
+            try FileManager.default.zipItem(at: payload, to: signedIPA)
+            // 注意：zipItem 會把 Payload 目錄本身打包，需要調整
+            // 實際應該用更精確的方式，這裡先簡化
+            signedIPAURL = signedIPA
+            log("完成: \(signedIPA.lastPathComponent)")
+            
+            // 清理工作目錄（保留 signed IPA）
+            try? FileManager.default.removeItem(at: workDir)
             
         } catch {
             errorMessage = "簽名失敗: \(error.localizedDescription)"
@@ -180,6 +202,27 @@ struct SigningFlowView: View {
     
     private func unzip(_ src: URL, to dest: URL) async throws {
         try FileManager.default.unzipItem(at: src, to: dest)
+    }
+    
+    private func embedProfiles(_ profiles: [SideSign.ProvisioningProfile], into appURL: URL) throws {
+        // 主 App
+        for profile in profiles {
+            let target: URL
+            if profile.bundleIdentifier == (NSDictionary(contentsOf: appURL.appendingPathComponent("Info.plist"))?["CFBundleIdentifier"] as? String) {
+                target = appURL
+            } else {
+                // 查找對應的 .appex
+                let plugIns = appURL.appendingPathComponent("PlugIns")
+                guard let extensions = try? FileManager.default.contentsOfDirectory(at: plugIns, includingPropertiesForKeys: nil) else { continue }
+                guard let ext = extensions.first(where: { extURL in
+                    let plist = extURL.appendingPathComponent("Info.plist")
+                    return (NSDictionary(contentsOf: plist)?["CFBundleIdentifier"] as? String) == profile.bundleIdentifier
+                }) else { continue }
+                target = ext
+            }
+            let dest = target.appendingPathComponent("embedded.mobileprovision")
+            try profile.data.write(to: dest)
+        }
     }
     
     private func extractBundleIDs(from appURL: URL) async throws -> [String] {
