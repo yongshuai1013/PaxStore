@@ -162,7 +162,55 @@ public class LockdownClient {
         
         // 驗證內層是 PKCS#1 (SEQUENCE)
         guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("內層不是 SEQUENCE"); return nil }
-        diag.append("內層 SEQUENCE ✓")
+        pos += 1
+        guard let (innerLen, innerLenBytes) = readDERLength(bytes, pos) else { diag.append("內層長度解析失敗"); return nil }
+        pos += innerLenBytes
+        let innerEnd = pos + innerLen
+        guard innerEnd == octEnd else {
+            diag.append("內層長度不匹配: 聲稱\(innerLen)，實際\(octEnd - pos)")
+            return nil
+        }
+        diag.append("內層 SEQUENCE 長度\(innerLen) ✓")
+        
+        // PKCS#1 應有 9 個 INTEGER: version, n, e, d, p, q, dp, dq, qinv
+        let names = ["版本", "n(模數)", "e(公鑰指數)", "d(私鑰指數)", "p", "q", "dp", "dq", "qinv"]
+        var intCount = 0
+        var nBits = 0
+        while pos < innerEnd && intCount < 9 {
+            guard pos < bytes.count && bytes[pos] == 0x02 else {
+                diag.append("第\(intCount)個不是 INTEGER (tag=\(pos < bytes.count ? String(format:"%02X", bytes[pos]) : "越界"))")
+                return nil
+            }
+            pos += 1
+            guard let (ilen, ilenBytes) = readDERLength(bytes, pos) else {
+                diag.append("第\(intCount)個 INTEGER 長度解析失敗"); return nil
+            }
+            pos += ilenBytes
+            guard pos + ilen <= bytes.count else {
+                diag.append("第\(intCount)個 INTEGER 超出範圍"); return nil
+            }
+            // 檢查 INTEGER 是否為負數（首字節最高位為1且無前導零）
+            let firstByte = bytes[pos]
+            let isNegative = (firstByte & 0x80) != 0
+            let name = intCount < names.count ? names[intCount] : "未知"
+            if intCount == 1 { nBits = ilen * 8 }  // n 的字節數估算位數
+            if isNegative {
+                diag.append("第\(intCount)個 [\(name)] 長度\(ilen) 為負數 ✗")
+            } else {
+                diag.append("第\(intCount)個 [\(name)] 長度\(ilen) ✓")
+            }
+            pos += ilen
+            intCount += 1
+        }
+        if intCount != 9 {
+            diag.append("INTEGER 個數不對: \(intCount) (應為9)")
+            return nil
+        }
+        if pos != innerEnd {
+            diag.append("內層有多餘字節: \(innerEnd - pos)")
+            return nil
+        }
+        diag.append("PKCS#1 9個INTEGER齊全，n約\(nBits)位 ✓")
         
         return pos..<octEnd
     }
