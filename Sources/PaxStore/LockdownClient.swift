@@ -361,7 +361,8 @@ public class LockdownClient {
         // 階段1: 明文 TCP 連接
         try tcpConnect()
 
-        // 階段2: 明文握手
+        // 階段2: 明文握手（對照 idevice 源碼：QueryType → StartSession → TLS，無 ValidatePair）
+        // 配對驗證靠 TLS 階段的客戶端證書完成
         let qt: [String: Any]
         do {
             qt = try await sendPlist(["Label": "PaxStore", "Request": "QueryType"])
@@ -377,27 +378,16 @@ public class LockdownClient {
            deviceUDID.lowercased() != fileUDID.lowercased() {
             throw LockdownError.handshakeFailed("配對檔 UDID 與設備不符：配對檔=\(fileUDID)，設備=\(deviceUDID)，請導入正確的配對檔")
         }
-        // PairRecord 只含標準五欄位：私鑰、EscrowBag、MAC、UDID 都不發
-        var pairRecord: [String: Any] = [:]
-        for key in ["DeviceCertificate", "HostCertificate", "HostID", "RootCertificate", "SystemBUID"] {
-            if let v = plist[key] { pairRecord[key] = v }
-        }
-        let vp: [String: Any]
-        do {
-            vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": pairRecord])
-        } catch {
-            throw LockdownError.handshakeFailed("ValidatePair 階段連接斷開: \(error)")
-        }
-        guard (vp["Result"] as? String) == "Success" else {
-            throw LockdownError.handshakeFailed("ValidatePair 失敗: \(vp)")
-        }
+        // StartSession：帶 HostID + SystemBUID
+        var ssReq: [String: Any] = ["Label": "PaxStore", "Request": "StartSession", "HostID": hostID]
+        if let buid = plist["SystemBUID"] as? String { ssReq["SystemBUID"] = buid }
         let ss: [String: Any]
         do {
-            ss = try await sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
+            ss = try await sendPlist(ssReq)
         } catch {
             throw LockdownError.handshakeFailed("StartSession 階段連接斷開: \(error)")
         }
-        guard (ss["Result"] as? String) == "Success" else {
+        guard (ss["EnableSessionSSL"] as? Bool) == true else {
             throw LockdownError.handshakeFailed("StartSession 失敗: \(ss)")
         }
         self.sessionID = ss["SessionID"] as? String
