@@ -71,7 +71,7 @@ public class AFCClient {
     }
     
     /// 發送 AFC 包並接收回應
-    private func transact(op: UInt64, payload: Data) async throws -> (op: UInt64, data: Data) {
+    private func transact(op: UInt64, payload: Data, opName: String = "未知") async throws -> (op: UInt64, data: Data) {
         guard let connection = connection else { throw AFCError.notConnected }
         let num = nextNum()
         
@@ -97,7 +97,12 @@ public class AFCClient {
         }
         
         // 接收回應頭
-        let respHeader = try await receive(length: 40)
+        let respHeader: Data
+        do {
+            respHeader = try await receive(length: 40)
+        } catch {
+            throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
+        }
         guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
             throw AFCError.invalidResponse
         }
@@ -153,7 +158,7 @@ public class AFCClient {
         openPayload.append(remotePath.data(using: .utf8)!)
         openPayload.append(0x00)
         
-        let (openOp, openData) = try await transact(op: OP_OPEN, payload: openPayload)
+        let (openOp, openData) = try await transact(op: OP_OPEN, payload: openPayload, opName: "OPEN")
         guard openOp == OP_DATA, openData.count >= 8 else {
             throw AFCError.openFailed(remotePath)
         }
@@ -163,7 +168,7 @@ public class AFCClient {
         let fileHandle = try FileHandle(forReadingFrom: localURL)
         defer { try? fileHandle.close() }
         
-        let chunkSize = 1024 * 1024  // 1MB
+        let chunkSize = 32 * 1024  // 32KB（VPN 下大包易斷）
         var sent: Int64 = 0
         
         while sent < totalSize {
@@ -175,7 +180,7 @@ public class AFCClient {
             writePayload.append(Data(bytes: &hLE, count: 8))
             writePayload.append(chunk)
             
-            let (writeOp, _) = try await transact(op: OP_WRITE, payload: writePayload)
+            let (writeOp, _) = try await transact(op: OP_WRITE, payload: writePayload, opName: "WRITE")
             guard writeOp == OP_STATUS else {
                 throw AFCError.writeFailed
             }
@@ -188,7 +193,7 @@ public class AFCClient {
         var closePayload = Data()
         var hLE2 = handle.littleEndian
         closePayload.append(Data(bytes: &hLE2, count: 8))
-        let (closeOp, _) = try await transact(op: OP_CLOSE, payload: closePayload)
+        let (closeOp, _) = try await transact(op: OP_CLOSE, payload: closePayload, opName: "CLOSE")
         guard closeOp == OP_STATUS else {
             throw AFCError.closeFailed
         }
@@ -205,6 +210,7 @@ public enum AFCError: Error, LocalizedError {
     case connectionFailed
     case invalidResponse
     case incompleteData
+    case operationFailed(String)
     case openFailed(String)
     case writeFailed
     case closeFailed
@@ -215,6 +221,7 @@ public enum AFCError: Error, LocalizedError {
         case .connectionFailed: return "AFC 連接失敗"
         case .invalidResponse: return "AFC 回應無效"
         case .incompleteData: return "AFC 數據不完整"
+        case .operationFailed(let s): return s
         case .openFailed(let p): return "AFC 打開文件失敗: \(p)"
         case .writeFailed: return "AFC 寫入失敗"
         case .closeFailed: return "AFC 關閉失敗"
