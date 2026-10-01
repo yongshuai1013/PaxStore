@@ -108,6 +108,9 @@ struct SigningFlowView: View {
                     .sheet(isPresented: $showingShare) {
                         ShareSheet(url: signedURL)
                     }
+                    NavigationLink(destination: InstallView(initialIPAURL: signedURL)) {
+                        Text("直接安裝此 IPA")
+                    }
                 }
             }
         }
