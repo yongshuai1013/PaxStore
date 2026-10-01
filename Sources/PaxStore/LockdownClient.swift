@@ -39,17 +39,32 @@ public class LockdownClient {
         }
         diag.append("PKCS#8 結構有效，內層 PKCS#1 \(pkcs1Range.count)字節")
         
-        // 先清掉舊的
-        let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!]
-        SecItemDelete(delKey as CFDictionary)
-        let delCert: [String: Any] = [kSecClass as String: kSecClassCertificate,
-            kSecAttrLabel as String: "PaxStorePairing"]
-        SecItemDelete(delCert as CFDictionary)
-        
-        // 導入私鑰：繞開 SecKeyCreateWithData，直接用 SecItemAdd 存 PKCS#8 再取回
-        // （SecKeyCreateWithData 在此設備上對有效鑰匙也報 -50）
+
+        // 路線1: PKCS#1 內層直接 SecKeyCreateWithData
+        let pkcs1Data = keyDER[pkcs1Range]
+        let keyAttrs: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+        ]
+        var cfErr: Unmanaged<CFError>?
+        if let secKey = SecKeyCreateWithData(pkcs1Data as CFData, keyAttrs as CFDictionary, &cfErr) {
+            diag.append("PKCS#1 直接導入成功")
+            return try Self.buildIdentity(secKey: secKey, certDER: certDER, diag: &diag)
+        }
+        diag.append("PKCS#1 導入失敗: \(cfErr?.takeRetainedValue().localizedDescription ?? "未知")")
+
+        // 路線2: PKCS#8 完整 SecKeyCreateWithData
+        if let secKey = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &cfErr) {
+            diag.append("PKCS#8 直接導入成功")
+            return try Self.buildIdentity(secKey: secKey, certDER: certDER, diag: &diag)
+        }
+        diag.append("PKCS#8 導入失敗: \(cfErr?.takeRetainedValue().localizedDescription ?? "未知")")
+
+        // 路線3: SecItemAdd 存 PKCS#8 再取回
         let tagData = "PaxStorePairing".data(using: .utf8)!
+        let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tagData]
+        SecItemDelete(delKey as CFDictionary)
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: tagData,
@@ -59,15 +74,11 @@ public class LockdownClient {
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
         var status = SecItemAdd(addKey as CFDictionary, nil)
-        if status == errSecDuplicateItem {
-            SecItemDelete(addKey as CFDictionary)
-            status = SecItemAdd(addKey as CFDictionary, nil)
-        }
+        if status == errSecDuplicateItem { status = errSecSuccess }
         guard status == errSecSuccess else {
             throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)\n" + diag.joined(separator: "\n"))
         }
         diag.append("私鑰已存 Keychain")
-        // 取回 SecKey
         let getKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: tagData,
@@ -75,20 +86,31 @@ public class LockdownClient {
         ]
         var keyItem: CFTypeRef?
         status = SecItemCopyMatching(getKey as CFDictionary, &keyItem)
-        if status != errSecSuccess {
-            throw LockdownError.tlsSetupFailed("私鑰取回失敗 status=\(status)\n" + diag.joined(separator: "\n"))
+        guard status == errSecSuccess, let keyItem = keyItem else {
+            throw LockdownError.tlsSetupFailed("私鑰取回失敗 status=\(status) itemNil=\(keyItem == nil)\n" + diag.joined(separator: "\n"))
         }
-        guard let keyItem = keyItem else {
-            throw LockdownError.tlsSetupFailed("取回 status=0 但 item 為 nil\n" + diag.joined(separator: "\n"))
-        }
-        diag.append("取回 item 類型=\(type(of: keyItem))")
+        diag.append("Keychain 取回成功")
         let secKey = keyItem as! SecKey
-        diag.append("私鑰導入成功")
-        
-        // 導入證書
+        return try Self.buildIdentity(secKey: secKey, certDER: certDER, diag: &diag)
+    }
+
+    /// 用 SecKey + 證書 DER 組裝 SecIdentity（存 Keychain 再取）
+    private static func buildIdentity(secKey: SecKey, certDER: Data, diag: inout [String]) throws -> SecIdentity {
+        let delCert: [String: Any] = [kSecClass as String: kSecClassCertificate,
+            kSecAttrLabel as String: "PaxStorePairing"]
+        SecItemDelete(delCert as CFDictionary)
         guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
             throw LockdownError.tlsSetupFailed("證書解析失敗")
         }
+        let addKey: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
+            kSecValueRef as String: secKey,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+        var status = SecItemAdd(addKey as CFDictionary, nil)
+        if status == errSecDuplicateItem { status = errSecSuccess }
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)") }
         let addCert: [String: Any] = [
             kSecClass as String: kSecClassCertificate,
             kSecValueRef as String: cert,
@@ -98,8 +120,7 @@ public class LockdownClient {
         status = SecItemAdd(addCert as CFDictionary, nil)
         if status == errSecDuplicateItem { status = errSecSuccess }
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("證書存 Keychain 失敗: \(status)") }
-        
-        // 取 Identity
+        diag.append("證書已存 Keychain")
         let query: [String: Any] = [
             kSecClass as String: kSecClassIdentity,
             kSecAttrLabel as String: "PaxStorePairing",
@@ -116,8 +137,9 @@ public class LockdownClient {
             status = SecItemCopyMatching(q2 as CFDictionary, &item)
         }
         guard status == errSecSuccess, let identity = item as! SecIdentity? else {
-            throw LockdownError.tlsSetupFailed("取 SecIdentity 失敗: \(status)")
+            throw LockdownError.tlsSetupFailed("取 SecIdentity 失敗: \(status)\n" + diag.joined(separator: "\n"))
         }
+        diag.append("SecIdentity 組裝成功")
         return identity
     }
     
