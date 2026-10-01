@@ -1,6 +1,10 @@
 import Foundation
 import Security
 
+// SecureTransport 常量（Swift 未導出，用原始值）
+private let errSecWouldBlock_Swift_Swift: OSStatus = -3101
+private let errSSLServerAuthCompleted_Swift_Swift: OSStatus = -9841
+
 /// Lockdown 協議客戶端（經 VPN 隧道連接設備）
 /// 連接流程：明文 TCP → QueryType/ValidatePair/StartSession → TLS 升級（同一 socket）
 public class LockdownClient {
@@ -359,15 +363,15 @@ public class LockdownClient {
         try tcpConnect()
 
         // 階段2: 明文握手
-        let qt = try sendPlist(["Label": "PaxStore", "Request": "QueryType"])
+        let qt = try await sendPlist(["Label": "PaxStore", "Request": "QueryType"])
         guard (qt["Type"] as? String) == "com.apple.mobile.lockdown" else {
             throw LockdownError.handshakeFailed("QueryType 回應異常")
         }
-        let vp = try sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": plist])
+        let vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": plist])
         guard (vp["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("ValidatePair 失敗: \(vp)")
         }
-        let ss = try sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
+        let ss = try await sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
         guard (ss["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("StartSession 失敗: \(ss)")
         }
@@ -459,7 +463,7 @@ public class LockdownClient {
             return errSecIO
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock_Swift : errSecIO
         }
     }
 
@@ -471,7 +475,7 @@ public class LockdownClient {
             return errSecSuccess
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock_Swift : errSecIO
         }
     }
 
@@ -494,11 +498,11 @@ public class LockdownClient {
         // 握手循環
         repeat {
             status = SSLHandshake(ctx)
-            if status == errSSLServerAuthCompleted {
+            if status == errSSLServerAuthCompleted_Swift {
                 // 放行自簽名服務器證書，繼續握手
                 continue
             }
-        } while status == errSecWouldBlock || status == errSSLServerAuthCompleted
+        } while status == errSecWouldBlock_Swift || status == errSSLServerAuthCompleted_Swift
         guard status == errSecSuccess else {
             throw LockdownError.tlsSetupFailed("TLS 握手失敗: \(status)")
         }
@@ -512,11 +516,11 @@ public class LockdownClient {
             while sent < data.count {
                 var processed = 0
                 let status = SSLWrite(ctx, base.advanced(by: sent), data.count - sent, &processed)
-                if status != errSecSuccess && status != errSecWouldBlock {
+                if status != errSecSuccess && status != errSecWouldBlock_Swift {
                     throw LockdownError.tlsSetupFailed("SSLWrite: \(status)")
                 }
                 sent += processed
-                if processed == 0 && status == errSecWouldBlock { continue }
+                if processed == 0 && status == errSecWouldBlock_Swift { continue }
             }
         }
     }
@@ -530,12 +534,12 @@ public class LockdownClient {
             let toRead = min(buf.count, length - result.count)
             var processed = 0
             let status = SSLRead(ctx, &buf, toRead, &processed)
-            if status != errSecSuccess && status != errSecWouldBlock {
+            if status != errSecSuccess && status != errSecWouldBlock_Swift {
                 throw LockdownError.tlsSetupFailed("SSLRead: \(status)")
             }
             if processed > 0 {
                 result.append(buf, count: processed)
-            } else if status != errSecWouldBlock {
+            } else if status != errSecWouldBlock_Swift {
                 throw LockdownError.incompleteData
             }
         }
