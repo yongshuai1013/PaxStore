@@ -25,7 +25,15 @@ struct AnisetteServerView: View {
                 .onMove(perform: moveServers)
             }
             
-            Section(header: Text("SERVER CATALOG SOURCE")) {
+            Section(header: HStack {
+                Text("SERVER CATALOG SOURCE")
+                Spacer()
+                Button("EDIT") {
+                    showingEditCatalog = true
+                }
+                .foregroundColor(.purple)
+                .font(.caption.bold())
+            }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Server List URL")
                         .font(.caption)
@@ -64,11 +72,6 @@ struct AnisetteServerView: View {
         .navigationTitle("Anisette 伺服器")
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button(action: { showingEditCatalog = true }) {
-                    Text("EDIT")
-                        .foregroundColor(.purple)
-                        .font(.caption.bold())
-                }
                 Button(action: refreshCatalog) {
                     if isRefreshing {
                         ProgressView()
@@ -80,9 +83,6 @@ struct AnisetteServerView: View {
                 Button(action: { showingAdd = true }) {
                     Image(systemName: "plus")
                 }
-            }
-            ToolbarItem(placement: .navigationBarLeading) {
-                EditButton()
             }
         }
         .sheet(isPresented: $showingAdd) {
