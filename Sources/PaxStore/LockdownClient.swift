@@ -47,11 +47,10 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰（明確指定 2048 位）
+        // 導入私鑰（最小屬性集，讓系統自己判斷）
         let keyAttrs: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
             kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-            kSecAttrKeySizeInBits as String: 2048,
         ]
         var err: Unmanaged<CFError>?
         guard let secKey = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err) else {
