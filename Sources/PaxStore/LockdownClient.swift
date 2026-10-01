@@ -163,6 +163,7 @@ public class LockdownClient {
         
         // 驗證內層是 PKCS#1 (SEQUENCE)
         guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("內層不是 SEQUENCE"); return nil }
+        let innerSeqStart = pos
         pos += 1
         guard let (innerLen, innerLenBytes) = readDERLength(bytes, pos) else { diag.append("內層長度解析失敗"); return nil }
         pos += innerLenBytes
@@ -213,7 +214,7 @@ public class LockdownClient {
         }
         diag.append("PKCS#1 9個INTEGER齊全，n約\(nBits)位 ✓")
         
-        return (pos - innerLen)..<octEnd
+        return innerSeqStart..<octEnd
     }
     
     /// 讀取 DER 長度編碼，返回 (長度, 佔用字節數)
