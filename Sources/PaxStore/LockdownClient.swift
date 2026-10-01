@@ -28,47 +28,12 @@ public class LockdownClient {
         guard let certDER = derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
         guard let keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
         
-        // 診斷：PEM 頭＋DER 結構
+        // 方案：用 SecItemImport 直接導入 PEM（自動識別 PKCS#1/PKCS#8，對格式更寬容）
         let pemHeader = hostKeyPEM.components(separatedBy: .newlines).first(where: { $0.hasPrefix("-----") }) ?? "無PEM頭"
-        let derHex = keyDER.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
-        
-        // 嘗試兩種：1) 直接導入（PKCS#8） 2) 包裝後導入（PKCS#1→PKCS#8）
-        var keyData: Data? = nil
-        var errMsgs: [String] = []
-        errMsgs.append("[\(pemHeader)] DER \(keyDER.count)字節 頭:\(derHex)")
-        
-        // 方式1：直接導入
-        let keyAttrs: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
-            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-        ]
-        var err1: Unmanaged<CFError>?
-        if let k1 = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err1) {
-            _ = k1
-            keyData = keyDER
-            errMsgs.append("直接導入成功")
-        } else {
-            errMsgs.append("直接導入失敗: \(err1?.takeRetainedValue().localizedDescription ?? "?")")
-            // 方式2：包裝後導入
-            if let wrapped = wrapPKCS1inPKCS8(keyDER) {
-                var err2: Unmanaged<CFError>?
-                if SecKeyCreateWithData(wrapped as CFData, keyAttrs as CFDictionary, &err2) != nil {
-                    keyData = wrapped
-                    errMsgs.append("包裝後導入成功 (\(wrapped.count)字節)")
-                } else {
-                    errMsgs.append("包裝後導入失敗: \(err2?.takeRetainedValue().localizedDescription ?? "?")")
-                }
-            } else {
-                errMsgs.append("PKCS#1 包裝失敗")
-            }
+        guard let pemData = hostKeyPEM.data(using: .utf8) else {
+            throw LockdownError.tlsSetupFailed("PEM 轉 data 失敗")
         }
-        
-        guard let finalKeyData = keyData else {
-            throw LockdownError.tlsSetupFailed("私鑰導入失敗\n" + errMsgs.joined(separator: "\n"))
-        }
-        var keyData2 = finalKeyData
-        
-        // 先清掉舊的（避免重複）
+        // 先清掉舊的
         let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!]
         SecItemDelete(delKey as CFDictionary)
@@ -76,21 +41,61 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰（已在上面成功創建，這裡重新獲取以存入 Keychain）
-        var err: Unmanaged<CFError>?
-        guard let secKey = SecKeyCreateWithData(keyData2 as CFData, keyAttrs as CFDictionary, &err) else {
-            let msg = err?.takeRetainedValue().localizedDescription ?? "未知錯誤"
-            throw LockdownError.tlsSetupFailed("私鑰二次導入失敗: \(msg)")
+        var importParams = SecItemImportExportKeyParameters(
+            version: SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION,
+            flags: SecKeyImportExportFlags(),
+            passphrase: nil,
+            alertTitle: nil,
+            alertPrompt: nil,
+            accessRef: nil,
+            keyUsage: nil,
+            keyAttributes: nil
+        )
+        var importedItems: CFArray?
+        let importStatus = SecItemImport(pemData as CFData, nil, nil, nil,
+            SecItemImportExportFlags(), &importParams, nil, &importedItems)
+        guard importStatus == errSecSuccess, let items = importedItems as? [[String: Any]],
+              let first = items.first else {
+            throw LockdownError.tlsSetupFailed("私鑰 SecItemImport 失敗 [\(pemHeader)] status=\(importStatus)")
         }
+        // 從導入結果中找 SecKey
+        var secKey: SecKey? = nil
+        for item in items {
+            if let k = item[kSecValueRef as String] {
+                // 檢查是否為 SecKey（嘗試轉換）
+                let v = k as AnyObject
+                if CFGetTypeID(v) == SecKeyGetTypeID() {
+                    secKey = (v as! SecKey)
+                    break
+                }
+            }
+        }
+        // 若沒找到，嘗試按 label 從 Keychain 查
+        if secKey == nil {
+            let q: [String: Any] = [kSecClass as String: kSecClassKey,
+                kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
+                kSecReturnRef as String: true]
+            var ref: CFTypeRef?
+            if SecItemCopyMatching(q as CFDictionary, &ref) == errSecSuccess {
+                secKey = (ref as! SecKey)
+            }
+        }
+        guard let finalKey = secKey else {
+            throw LockdownError.tlsSetupFailed("導入成功但找不到 SecKey [\(pemHeader)]")
+        }
+        // 存入 Keychain（帶 application tag，方便後續查找）
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
-            kSecValueRef as String: secKey,
+            kSecValueRef as String: finalKey,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
         var status = SecItemAdd(addKey as CFDictionary, nil)
         if status == errSecDuplicateItem { status = errSecSuccess }
-        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)") }
+        // 重複也算成功（已存在）
+        if status != errSecSuccess && status != errSecDuplicateItem {
+            throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)")
+        }
         
         // 導入證書
         guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
