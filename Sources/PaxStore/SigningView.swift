@@ -5,6 +5,7 @@ import SideSign
 struct SigningView: View {
     @State private var teams: [SideSign.Team] = []
     @State private var certificates: [SideSign.X509Certificate] = []
+    @State private var activeCertSerial: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
     
@@ -22,16 +23,43 @@ struct SigningView: View {
                 }
             }
             
+            if let serial = activeCertSerial {
+                Section(header: Text("ACTIVE LOCAL CERTIFICATE")) {
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.green)
+                        VStack(alignment: .leading) {
+                            Text("Active Signing Certificate")
+                                .font(.headline)
+                            Text("SN: \(serial)")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    Button("Deactivate Locally") {
+                        PaxSigningService.shared.clearActiveCertificate()
+                        activeCertSerial = nil
+                    }
+                    .foregroundColor(.red)
+                }
+            }
+            
             Section(header: Text("CERTIFICATES")) {
                 if certificates.isEmpty {
                     Text(isLoading ? "載入中..." : "無")
                 } else {
                     ForEach(certificates, id: \.serialNumberHex) { cert in
-                        VStack(alignment: .leading) {
-                            Text(cert.machineName ?? "Unknown")
-                            Text(cert.serialNumberHex)
-                                .font(.caption)
-                                .foregroundColor(.gray)
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(cert.machineName ?? "Unknown")
+                                Text(cert.serialNumberHex)
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            Spacer()
+                            let hasKey = (cert.serialNumberHex == activeCertSerial)
+                            Image(systemName: hasKey ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(hasKey ? .green : .red)
                         }
                     }
                 }
@@ -44,7 +72,10 @@ struct SigningView: View {
             }
         }
         .navigationTitle("證書管理")
-        .onAppear { loadTeams() }
+        .onAppear {
+            activeCertSerial = PaxSigningService.shared.loadActiveCertificateSerial()
+            loadTeams()
+        }
     }
     
     private func loadTeams() {
