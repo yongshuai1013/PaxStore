@@ -69,11 +69,16 @@ extension PaxSigningService {
             throw SigningError.certificateFailed("沒有可用證書")
         }
         
+        let deviceIDs = try await portal.fetchDevices(for: team, session: session).compactMap { $0.identifier }
+        guard !deviceIDs.isEmpty else {
+            throw SigningError.profileFailed("團隊沒有註冊的設備")
+        }
+        
         let newProfile = try await portal.createProvisioningProfile(
             name: "PaxStore \(appID.bundleIdentifier)",
             appID: appID,
             certificateIDs: [certID],
-            deviceIDs: [],
+            deviceIDs: deviceIDs,
             team: team,
             session: session
         )
