@@ -84,13 +84,8 @@ struct SigningFlowView: View {
             }
         }
         .navigationTitle("簽名 IPA")
-        .fileImporter(isPresented: $isPickingIPA, allowedContentTypes: [.data, .zip, .archive], allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else {
-                    errorMessage = "未選擇文件"
-                    return
-                }
+        .sheet(isPresented: $isPickingIPA) {
+            DocumentPicker { url in
                 // 複製到沙盒內
                 let dest = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
                 try? FileManager.default.removeItem(at: dest)
@@ -103,8 +98,9 @@ struct SigningFlowView: View {
                 } catch {
                     errorMessage = "複製文件失敗: \(error.localizedDescription)"
                 }
-            case .failure(let err):
-                errorMessage = "選擇失敗: \(err.localizedDescription)"
+                isPickingIPA = false
+            } onCancel: {
+                isPickingIPA = false
             }
         }
         .task {
@@ -255,6 +251,44 @@ struct SigningFlowView: View {
             throw SigningError.signingFailed("無法解析 Bundle ID")
         }
         return ids
+    }
+}
+
+struct DocumentPicker: UIViewControllerRepresentable {
+    var onPick: (URL) -> Void
+    var onCancel: () -> Void
+    
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+    
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        var onPick: (URL) -> Void
+        var onCancel: () -> Void
+        
+        init(onPick: @escaping (URL) -> Void, onCancel: @escaping () -> Void) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+        
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let url = urls.first {
+                onPick(url)
+            }
+        }
+        
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
     }
 }
 
