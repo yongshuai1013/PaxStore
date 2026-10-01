@@ -6,41 +6,15 @@ options:
   createIntermediateGroups: true
   groupSortPosition: top
 
-packages:
-  ZIPFoundation:
-    url: https://github.com/weichsel/ZIPFoundation.git
-    from: "0.9.0"
-  SideSign:
-    url: https://github.com/SideStore/SideSign.git
-    branch: main
-
 targets:
-  PaxStoreCore:
-    type: framework
-    platform: iOS
-    deploymentTarget: "15.0"
-    sources:
-      - Sources/PaxStoreCore
-    dependencies:
-      - package: ZIPFoundation
-      - package: SideSign
-
   PaxStore:
     type: application
     platform: iOS
     deploymentTarget: "15.0"
     sources:
       - Sources/PaxStore
-    dependencies:
-      - target: PaxStoreCore
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
     info:
       path: Resources/Info.plist
-      properties:
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        UILaunchStoryboardName: LaunchScreen
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
