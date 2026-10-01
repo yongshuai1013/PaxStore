@@ -9,6 +9,7 @@ public class LockdownClient {
     public let port: UInt16
     private var sessionID: String?
     private var hostID: String?
+    private var pairIdentity: SecIdentity?
     
     public init(host: String = "10.7.0.1", port: UInt16 = 62078) {
         self.host = host
@@ -144,6 +145,7 @@ public class LockdownClient {
         self.hostID = hostID
         
         let identity = try makeIdentity(hostCertPEM: hostCertPEM, hostKeyPEM: hostKeyPEM)
+        self.pairIdentity = identity
         
         let tlsOptions = NWProtocolTLS.Options()
         sec_protocol_options_set_local_identity(
@@ -257,6 +259,9 @@ public class LockdownClient {
         let sslEnabled = (response["EnableServiceSSL"] as? Bool) ?? false
         return (UInt16(portRaw), sslEnabled)
     }
+    
+    /// 配對用的客戶端身份（給需要 SSL 的服務用）
+    public var identity: SecIdentity? { pairIdentity }
     
     public func disconnect() {
         connection?.cancel()
