@@ -8,6 +8,8 @@ struct SigningView: View {
     @State private var activeCertSerial: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var certToRevoke: SideSign.X509Certificate?
+    @State private var showRevokeAlert = false
     
     var body: some View {
         List {
@@ -65,6 +67,12 @@ struct SigningView: View {
                             Image(systemName: hasKey ? "checkmark.circle.fill" : "xmark.circle.fill")
                                 .foregroundColor(hasKey ? .green : .red)
                         }
+                        .contextMenu {
+                            Button("撤銷證書", role: .destructive) {
+                                certToRevoke = cert
+                                showRevokeAlert = true
+                            }
+                        }
                     }
                 }
             }
@@ -79,6 +87,18 @@ struct SigningView: View {
         .onAppear {
             activeCertSerial = PaxSigningService.shared.loadActiveCertificateSerial()
             loadTeams()
+        }
+        .alert("撤銷證書？", isPresented: $showRevokeAlert) {
+            Button("撤銷", role: .destructive) {
+                if let cert = certToRevoke, let team = teams.first {
+                    revokeCertificate(cert, for: team)
+                }
+            }
+            Button("取消", role: .cancel) { }
+        } message: {
+            if let cert = certToRevoke {
+                Text("確定要撤銷 \(cert.machineName ?? cert.serialNumberHex) 嗎？此操作不可恢復。")
+            }
         }
     }
     
@@ -112,6 +132,30 @@ struct SigningView: View {
                     self.certificates = result
                     self.isLoading = false
                 }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func revokeCertificate(_ cert: SideSign.X509Certificate, for team: SideSign.Team) {
+        isLoading = true
+        errorMessage = nil
+        Task {
+            do {
+                try await PaxSigningService.shared.revokeCertificate(cert, for: team)
+                let wasActive = (cert.serialNumberHex == activeCertSerial)
+                await MainActor.run {
+                    self.isLoading = false
+                    if wasActive {
+                        PaxSigningService.shared.clearActiveCertificate()
+                        self.activeCertSerial = nil
+                    }
+                }
+                loadCertificates(for: team)
             } catch {
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
