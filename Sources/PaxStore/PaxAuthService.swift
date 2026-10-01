@@ -14,6 +14,7 @@ public final class TwoFACodeProvider: Sendable {
     private var continuation: CheckedContinuation<String, Never>?
     private var pendingCode: String?
     private var _onCodeRequired: (@Sendable () -> Void)?
+    private var _onLog: (@Sendable (String) -> Void)?
     
     // 方式選擇
     private var methodContinuation: CheckedContinuation<TwoFactorMethod, Never>?
@@ -21,6 +22,19 @@ public final class TwoFACodeProvider: Sendable {
     private var _onMethodRequired: (@Sendable ([TrustedPhoneNumber], TwoFactorDeliveryMode) -> Void)?
     
     public init() {}
+    
+    /// UI 設置日誌回調
+    public var onLog: (@Sendable (String) -> Void)? {
+        get { lock.withLock { _onLog } }
+        set { lock.withLock { _onLog = newValue } }
+    }
+    
+    public func log(_ message: String) {
+        if let callback = lock.withLock({ _onLog }) {
+            callback(message)
+        }
+        print("[PaxStore] \(message)")
+    }
     
     /// UI 設置「需要驗證碼時」的回調（用來顯示輸入框）
     public var onCodeRequired: (@Sendable () -> Void)? {
@@ -149,26 +163,40 @@ public final class PaxAuthService {
         
         let verificationHandler: SideSign.DeveloperPortal.VerificationHandler = { request in
             switch request {
-            case .trustedDevice, .sms, .voice:
-                // 等待 UI 輸入（不會拋錯重來）
+            case .trustedDevice(let error):
+                codeProvider.log("收到 trustedDevice 請求, error: \(error ?? "無")")
                 let code = await codeProvider.awaitCode()
-                // 去掉可能的空格
                 let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
-                print("[PaxStore] 提交 2FA 碼: \(cleanCode.count) 位")
+                codeProvider.log("提交設備碼: \(cleanCode.count) 位")
+                return .verificationCode(cleanCode)
+            case .sms(let phoneNumbers, let activeID, let error):
+                codeProvider.log("收到 sms 請求, activeID: \(activeID), 電話數: \(phoneNumbers.count), error: \(error ?? "無")")
+                let code = await codeProvider.awaitCode()
+                let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                codeProvider.log("提交 SMS 碼: \(cleanCode.count) 位到 \(activeID)")
+                return .verificationCode(cleanCode)
+            case .voice(let phoneNumbers, let activeID, let error):
+                codeProvider.log("收到 voice 請求, activeID: \(activeID), error: \(error ?? "無")")
+                let code = await codeProvider.awaitCode()
+                let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                codeProvider.log("提交語音碼: \(cleanCode.count) 位")
                 return .verificationCode(cleanCode)
             case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
-                print("[PaxStore] Apple 建議的 2FA 方式: \(preferredMode), 可用電話: \(phoneNumbers.count)")
+                codeProvider.log("選擇 2FA 方式, 建議: \(preferredMode), 電話數: \(phoneNumbers.count)")
+                for phone in phoneNumbers {
+                    codeProvider.log("  電話: id=\(phone.id), number=\(phone.number)")
+                }
                 // 彈窗讓用戶手動選擇（跟 SideStore 一樣）
                 let method = await codeProvider.awaitMethod(phoneNumbers: phoneNumbers, preferred: preferredMode)
                 switch method {
                 case .trustedDevice:
-                    print("[PaxStore] 用戶選擇: 受信任設備")
+                    codeProvider.log("用戶選擇: 受信任設備")
                     return .requestTrustedDevice
                 case .sms(let phoneID):
-                    print("[PaxStore] 用戶選擇: SMS (\(phoneID))")
+                    codeProvider.log("用戶選擇: SMS (phoneID=\(phoneID))")
                     return .requestSMS(phoneID: phoneID)
                 case .voice(let phoneID):
-                    print("[PaxStore] 用戶選擇: 語音 (\(phoneID))")
+                    codeProvider.log("用戶選擇: 語音 (phoneID=\(phoneID))")
                     return .requestVoice(phoneID: phoneID)
                 }
             }
