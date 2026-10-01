@@ -24,15 +24,21 @@ public class LockdownClient {
     }
     
     /// 從配對檔建立 SecIdentity（經 Keychain）
+    /// 從配對檔建立 SecIdentity（經 Keychain）
     private func makeIdentity(hostCertPEM: String, hostKeyPEM: String) throws -> SecIdentity {
         guard let certDER = derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
         guard let keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
         
-        // 方案：用 SecItemImport 直接導入 PEM（自動識別 PKCS#1/PKCS#8，對格式更寬容）
         let pemHeader = hostKeyPEM.components(separatedBy: .newlines).first(where: { $0.hasPrefix("-----") }) ?? "無PEM頭"
-        guard let pemData = hostKeyPEM.data(using: .utf8) else {
-            throw LockdownError.tlsSetupFailed("PEM 轉 data 失敗")
+        let derHex = keyDER.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
+        
+        // 驗證 PKCS#8 結構
+        var diag: [String] = ["[\(pemHeader)] DER \(keyDER.count)字節 頭:\(derHex)"]
+        guard let pkcs1Range = validatePKCS8(keyDER, diag: &diag) else {
+            throw LockdownError.tlsSetupFailed("私鑰結構驗證失敗\n" + diag.joined(separator: "\n"))
         }
+        diag.append("PKCS#8 結構有效，內層 PKCS#1 \(pkcs1Range.count)字節")
+        
         // 先清掉舊的
         let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!]
@@ -41,61 +47,27 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        var importParams = SecItemImportExportKeyParameters(
-            version: SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION,
-            flags: SecKeyImportExportFlags(),
-            passphrase: nil,
-            alertTitle: nil,
-            alertPrompt: nil,
-            accessRef: nil,
-            keyUsage: nil,
-            keyAttributes: nil
-        )
-        var importedItems: CFArray?
-        let importStatus = SecItemImport(pemData as CFData, nil, nil, nil,
-            SecItemImportExportFlags(), &importParams, nil, &importedItems)
-        guard importStatus == errSecSuccess, let items = importedItems as? [[String: Any]],
-              let first = items.first else {
-            throw LockdownError.tlsSetupFailed("私鑰 SecItemImport 失敗 [\(pemHeader)] status=\(importStatus)")
+        // 導入私鑰
+        let keyAttrs: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+        ]
+        var err: Unmanaged<CFError>?
+        guard let secKey = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err) else {
+            let msg = err?.takeRetainedValue().localizedDescription ?? "未知錯誤"
+            throw LockdownError.tlsSetupFailed("私鑰導入失敗: \(msg)\n" + diag.joined(separator: "\n"))
         }
-        // 從導入結果中找 SecKey
-        var secKey: SecKey? = nil
-        for item in items {
-            if let k = item[kSecValueRef as String] {
-                // 檢查是否為 SecKey（嘗試轉換）
-                let v = k as AnyObject
-                if CFGetTypeID(v) == SecKeyGetTypeID() {
-                    secKey = (v as! SecKey)
-                    break
-                }
-            }
-        }
-        // 若沒找到，嘗試按 label 從 Keychain 查
-        if secKey == nil {
-            let q: [String: Any] = [kSecClass as String: kSecClassKey,
-                kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
-                kSecReturnRef as String: true]
-            var ref: CFTypeRef?
-            if SecItemCopyMatching(q as CFDictionary, &ref) == errSecSuccess {
-                secKey = (ref as! SecKey)
-            }
-        }
-        guard let finalKey = secKey else {
-            throw LockdownError.tlsSetupFailed("導入成功但找不到 SecKey [\(pemHeader)]")
-        }
-        // 存入 Keychain（帶 application tag，方便後續查找）
+        diag.append("私鑰導入成功")
+        
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
             kSecAttrApplicationTag as String: "PaxStorePairing".data(using: .utf8)!,
-            kSecValueRef as String: finalKey,
+            kSecValueRef as String: secKey,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
         ]
         var status = SecItemAdd(addKey as CFDictionary, nil)
         if status == errSecDuplicateItem { status = errSecSuccess }
-        // 重複也算成功（已存在）
-        if status != errSecSuccess && status != errSecDuplicateItem {
-            throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)")
-        }
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("私鑰存 Keychain 失敗: \(status)") }
         
         // 導入證書
         guard let cert = SecCertificateCreateWithData(nil, certDER as CFData) else {
@@ -111,7 +83,7 @@ public class LockdownClient {
         if status == errSecDuplicateItem { status = errSecSuccess }
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("證書存 Keychain 失敗: \(status)") }
         
-        // 取 Identity（系統會自動把匹配的 key+cert 組成 identity）
+        // 取 Identity
         let query: [String: Any] = [
             kSecClass as String: kSecClassIdentity,
             kSecAttrLabel as String: "PaxStorePairing",
@@ -119,7 +91,6 @@ public class LockdownClient {
         ]
         var item: CFTypeRef?
         status = SecItemCopyMatching(query as CFDictionary, &item)
-        // 若按 label 找不到，嘗試用證書找
         if status != errSecSuccess {
             let q2: [String: Any] = [
                 kSecClass as String: kSecClassIdentity,
@@ -129,27 +100,85 @@ public class LockdownClient {
             status = SecItemCopyMatching(q2 as CFDictionary, &item)
         }
         guard status == errSecSuccess, let identity = item as! SecIdentity? else {
-            throw LockdownError.tlsSetupFailed("Identity 組裝失敗: \(status)")
+            throw LockdownError.tlsSetupFailed("取 SecIdentity 失敗: \(status)")
         }
         return identity
     }
     
-    private func wrapPKCS1inPKCS8(_ pkcs1: Data) -> Data? {
-        // PKCS#8 頭 (RSA-2048): SEQUENCE { INTEGER 0, SEQUENCE { OID 1.2.840.113549.1.1.1, NULL }, OCTET STRING <pkcs1> }
-        // 手工組 ASN.1
-        var out = Data()
-        func lenBytes(_ n: Int) -> Data {
-            if n < 128 { return Data([UInt8(n)]) }
-            var v = n; var b: [UInt8] = []
-            while v > 0 { b.insert(UInt8(v & 0xFF), at: 0); v >>= 8 }
-            return Data([UInt8(0x80 | b.count)] + b)
+    /// 驗證 PKCS#8 結構，返回內層 PKCS#1 的範圍
+    private func validatePKCS8(_ data: Data, diag: inout [String]) -> Range<Int>? {
+        let bytes = [UInt8](data)
+        var pos = 0
+        
+        // 外層 SEQUENCE
+        guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("外層不是 SEQUENCE"); return nil }
+        pos += 1
+        guard let (seqLen, seqLenBytes) = readDERLength(bytes, pos) else { diag.append("外層長度解析失敗"); return nil }
+        pos += seqLenBytes
+        if seqLen != bytes.count - pos {
+            diag.append("外層長度不匹配: 聲稱\(seqLen)，實際\(bytes.count - pos)")
+            return nil
         }
-        let oidPart = Data([0x30, 0x0D, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x05, 0x00])
-        let intZero = Data([0x02, 0x01, 0x00])
-        var octet = Data([0x04]); octet.append(lenBytes(pkcs1.count)); octet.append(pkcs1)
-        var inner = intZero + oidPart + octet
-        var seq = Data([0x30]); seq.append(lenBytes(inner.count)); seq.append(inner)
-        return seq
+        diag.append("外層 SEQUENCE 長度\(seqLen) ✓")
+        
+        // INTEGER 0 (version)
+        guard pos + 3 <= bytes.count && bytes[pos] == 0x02 && bytes[pos+1] == 0x01 && bytes[pos+2] == 0x00 else {
+            diag.append("版本不是 INTEGER 0"); return nil
+        }
+        pos += 3
+        diag.append("版本 INTEGER 0 ✓")
+        
+        // AlgorithmIdentifier SEQUENCE
+        guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("算法標識不是 SEQUENCE"); return nil }
+        pos += 1
+        guard let (algLen, algLenBytes) = readDERLength(bytes, pos) else { diag.append("算法長度解析失敗"); return nil }
+        pos += algLenBytes
+        let algEnd = pos + algLen
+        // OID rsaEncryption
+        let expectedOID: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01]
+        guard pos + expectedOID.count <= bytes.count && Array(bytes[pos..<(pos+expectedOID.count)]) == expectedOID else {
+            diag.append("OID 不是 rsaEncryption"); return nil
+        }
+        pos += expectedOID.count
+        // NULL
+        guard pos + 2 <= bytes.count && bytes[pos] == 0x05 && bytes[pos+1] == 0x00 else {
+            diag.append("算法參數不是 NULL"); return nil
+        }
+        pos += 2
+        if pos != algEnd { diag.append("算法標識有多餘字節"); return nil }
+        diag.append("算法 rsaEncryption ✓")
+        
+        // OCTET STRING (內層 PKCS#1)
+        guard pos < bytes.count && bytes[pos] == 0x04 else { diag.append("私鑰不是 OCTET STRING"); return nil }
+        pos += 1
+        guard let (octLen, octLenBytes) = readDERLength(bytes, pos) else { diag.append("OCTET長度解析失敗"); return nil }
+        pos += octLenBytes
+        let octEnd = pos + octLen
+        guard octEnd == bytes.count else {
+            diag.append("OCTET STRING 長度不匹配: 聲稱\(octLen)，剩餘\(bytes.count - pos)")
+            return nil
+        }
+        diag.append("OCTET STRING 長度\(octLen) ✓")
+        
+        // 驗證內層是 PKCS#1 (SEQUENCE)
+        guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("內層不是 SEQUENCE"); return nil }
+        diag.append("內層 SEQUENCE ✓")
+        
+        return pos..<octEnd
+    }
+    
+    /// 讀取 DER 長度編碼，返回 (長度, 佔用字節數)
+    private func readDERLength(_ bytes: [UInt8], _ pos: Int) -> (Int, Int)? {
+        guard pos < bytes.count else { return nil }
+        let b = bytes[pos]
+        if b < 0x80 { return (Int(b), 1) }
+        let count = Int(b & 0x7F)
+        guard count > 0 && count <= 4 && pos + 1 + count <= bytes.count else { return nil }
+        var len = 0
+        for i in 0..<count {
+            len = (len << 8) | Int(bytes[pos + 1 + i])
+        }
+        return (len, 1 + count)
     }
     
     /// 使用配對檔建立 TLS 連接並完成 lockdown 握手
