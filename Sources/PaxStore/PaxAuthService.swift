@@ -1,6 +1,19 @@
 import Foundation
 import SideSign
 
+/// 2FA 代碼提供者（橋接 UI 和 SideSign handler）
+public final class TwoFACodeProvider: Sendable {
+    private let lock = NSLock()
+    private var _code: String?
+    
+    public init() {}
+    
+    public var code: String? {
+        get { lock.withLock { _code } }
+        set { lock.withLock { _code = newValue } }
+    }
+}
+
 /// PaxStore 登入服務（用 SideSign，跟 SideStore 同款）
 public final class PaxAuthService {
     public static let shared = PaxAuthService()
@@ -11,12 +24,13 @@ public final class PaxAuthService {
     
     private init() {}
     
-    /// 登入，成功返回 true，失敗拋錯
+    /// 登入，成功返回 true
     /// - Parameters:
     ///   - appleID: Apple ID
     ///   - password: 密碼
-    ///   - verificationCode: 2FA 驗證碼（如果上次登入要求 2FA）
-    public func login(appleID: String, password: String, verificationCode: String? = nil) async throws -> Bool {
+    ///   - codeProvider: 2FA 代碼提供者（UI 設置代碼）
+    /// - Throws: 如果需要 2FA 但沒提供代碼，拋 PaxAuthError.twoFactorRequired
+    public func login(appleID: String, password: String, codeProvider: TwoFACodeProvider = TwoFACodeProvider()) async throws -> Bool {
         // 1. 拿 anisette（穩定身份）
         let identifier = resolveIdentifier()
         let existingBlob: Data? = loadADIBlob()
@@ -28,25 +42,28 @@ public final class PaxAuthService {
             existingAdiBlob: existingBlob
         )
         
-        // 存新的 ADI blob
         if let newBlob = newBlob {
             saveADIBlob(newBlob)
         }
         
-        // 2. SideSign 登入
+        // 2. SideSign 登入（帶 2FA handler，優先 SMS）
         let portal = SideSign.DeveloperPortal.shared
         
-        // 2FA handler：如果有驗證碼就用，沒有就拋錯讓 UI 提示輸入
-        let verificationHandler: SideSign.DeveloperPortal.VerificationHandler? = verificationCode.map { code in
-            { request in
-                // 根據請求類型返回驗證碼
-                switch request {
-                case .trustedDevice, .sms, .voice:
+        let verificationHandler: SideSign.DeveloperPortal.VerificationHandler = { request in
+            switch request {
+            case .trustedDevice, .sms, .voice:
+                // 需要驗證碼：看 UI 有沒有提供
+                if let code = codeProvider.code, !code.isEmpty {
                     return .verificationCode(code)
-                case .selectDeliveryMethod:
-                    // 預設用受信任設備
-                    return .requestTrustedDevice
                 }
+                // 沒碼：拋錯，讓 UI 顯示輸入框
+                throw PaxAuthError.twoFactorRequired
+            case .selectDeliveryMethod(_, let phoneNumbers):
+                // 優先 SMS（此類帳號只能走 SMS）
+                if let firstPhone = phoneNumbers.first {
+                    return .requestSMS(phoneID: firstPhone.id)
+                }
+                return .requestTrustedDevice
             }
         }
         
@@ -58,7 +75,6 @@ public final class PaxAuthService {
             verificationHandler: verificationHandler
         )
         
-        // 3. 存 session（簡化版）
         print("[PaxStore] 登入成功")
         return true
     }
@@ -82,5 +98,16 @@ public final class PaxAuthService {
     
     private func saveADIBlob(_ data: Data) {
         UserDefaults.standard.set(data, forKey: "paxstore.anisette.adiblob")
+    }
+}
+
+public enum PaxAuthError: Error, LocalizedError {
+    case twoFactorRequired
+    
+    public var errorDescription: String? {
+        switch self {
+        case .twoFactorRequired:
+            return "請輸入 Apple 發送的 2FA 驗證碼"
+        }
     }
 }
