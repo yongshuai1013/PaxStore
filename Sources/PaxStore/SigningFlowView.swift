@@ -84,6 +84,9 @@ struct SigningFlowView: View {
             }
         }
         .navigationTitle("簽名 IPA")
+        .onChange(of: selectedTeam) { _ in
+            Task { await checkDevices() }
+        }
         .sheet(isPresented: $isPickingIPA) {
             DocumentPicker { url in
                 // 複製到沙盒內
@@ -198,6 +201,34 @@ struct SigningFlowView: View {
         }
         
         isSigning = false
+    }
+    
+    private func registerDevice() async {
+        guard let team = selectedTeam else { return }
+        log("註冊設備...")
+        do {
+            let device = try await signingService.registerDevice(udid: deviceUDID, name: deviceName, for: team)
+            log("設備已註冊: \(device.name)")
+            showDeviceRegistration = false
+            deviceUDID = ""
+        } catch {
+            errorMessage = "註冊失敗: \(error.localizedDescription)"
+        }
+    }
+    
+    private func checkDevices() async {
+        guard let team = selectedTeam else { return }
+        do {
+            let devices = try await signingService.fetchDevices(for: team)
+            showDeviceRegistration = devices.isEmpty
+            if devices.isEmpty {
+                log("團隊沒有註冊的設備，需要先註冊")
+            } else {
+                log("找到 \(devices.count) 個已註冊設備")
+            }
+        } catch {
+            log("檢查設備失敗: \(error.localizedDescription)")
+        }
     }
     
     private func unzip(_ src: URL, to dest: URL) async throws {
