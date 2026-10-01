@@ -65,13 +65,10 @@ public final class PaxAuthService {
     
     private init() {}
     
-    /// 當前選中的 anisette 伺服器
+    /// 登入時用的 anisette 伺服器列表（自動輪換開→按優先順序 failover）
     private var anisetteServers: [URL] {
-        let server = AnisetteServerManager.shared.selectedServer
-        guard let url = server.nsURL else {
-            return [URL(string: "https://ani.sidestore.zip")!]
-        }
-        return [url]
+        let urls = AnisetteServerManager.shared.serversForLogin()
+        return urls.isEmpty ? [URL(string: "https://ani.sidestore.zip")!] : urls
     }
     
     /// 登入（一次 authenticate 內完成 2FA，不會重發 SMS）
