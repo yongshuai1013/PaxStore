@@ -462,7 +462,7 @@ public class LockdownClient {
             return errSecIO
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? Self.errWouldBlock : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? LockdownClient.errWouldBlock : errSecIO
         }
     }
 
@@ -474,7 +474,7 @@ public class LockdownClient {
             return errSecSuccess
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? Self.errWouldBlock : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? LockdownClient.errWouldBlock : errSecIO
         }
     }
 
