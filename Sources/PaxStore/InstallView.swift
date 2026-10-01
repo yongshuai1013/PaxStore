@@ -93,8 +93,14 @@ struct InstallView: View {
                 .disabled(ipaURL == nil || isInstalling || !vpnConnected)
                 
                 if !progressMessage.isEmpty {
-                    Text(progressMessage)
-                        .font(.caption)
+                    HStack {
+                        Text(progressMessage)
+                            .font(.caption)
+                        Spacer()
+                        Text("\(progressPercent)%")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
                     ProgressView(value: Double(progressPercent), total: 100)
                 }
             }
