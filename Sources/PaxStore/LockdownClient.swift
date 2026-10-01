@@ -443,7 +443,7 @@ public class LockdownClient {
         while result.count < length {
             let toRead = min(buf.count, length - result.count)
             let n = recv(socketFD, &buf, toRead, 0)
-            if n <= 0 { throw LockdownError.incompleteData }
+            if n <= 0 { throw LockdownError.tlsSetupFailed("明文階段連接被設備斷開 (recv=\(n), errno=\(errno))") }
             result.append(buf, count: n)
         }
         return result
@@ -539,7 +539,7 @@ public class LockdownClient {
             if processed > 0 {
                 result.append(buf, count: processed)
             } else if status != Self.errWouldBlock {
-                throw LockdownError.incompleteData
+                throw LockdownError.tlsSetupFailed("TLS 階段連接被設備斷開 (SSLRead status=\(status))")
             }
         }
         return result
