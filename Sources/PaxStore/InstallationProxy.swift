@@ -4,22 +4,38 @@ import Network
 /// installation_proxy 服務客戶端
 public class InstallationProxy {
     private let lockdown: LockdownClient
+    private let host: String
     private var serviceConnection: NWConnection?
     
-    public init(lockdown: LockdownClient) {
+    public init(lockdown: LockdownClient, host: String = "10.7.0.1") {
         self.lockdown = lockdown
+        self.host = host
     }
     
     /// 連接到 installation_proxy 服務
     public func connect() async throws {
-        let (port, _) = try await lockdown.startService("com.apple.mobile.installation_proxy")
+        let (port, sslEnabled) = try await lockdown.startService("com.apple.mobile.installation_proxy")
         
-        // 建立到服務端口的連接
-        // 注意：經 VPN 隧道，服務端口也在同一個主機上
+        let params: NWParameters
+        if sslEnabled {
+            let tlsOptions = NWProtocolTLS.Options()
+            if let id = lockdown.identity {
+                sec_protocol_options_set_local_identity(
+                    tlsOptions.securityProtocolOptions,
+                    sec_identity_create(id)!
+                )
+            }
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
+                complete(true)
+            }, .global())
+            params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+        } else {
+            params = .tcp
+        }
         serviceConnection = NWConnection(
-            host: NWEndpoint.Host("10.7.0.1"),
+            host: NWEndpoint.Host(host),
             port: NWEndpoint.Port(rawValue: port)!,
-            using: .tcp
+            using: params
         )
         
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -82,6 +98,11 @@ public class InstallationProxy {
                 progress(percent)
             }
         }
+    }
+    
+    public func disconnect() {
+        serviceConnection?.cancel()
+        serviceConnection = nil
     }
     
     private func sendPlist(_ dict: [String: Any], over connection: NWConnection) async throws {
