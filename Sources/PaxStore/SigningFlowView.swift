@@ -1,6 +1,7 @@
 import SwiftUI
 import SideSign
 import UniformTypeIdentifiers
+import ZIPFoundation
 
 struct SigningFlowView: View {
     @State private var teams: [SideSign.Team] = []
@@ -178,15 +179,7 @@ struct SigningFlowView: View {
     }
     
     private func unzip(_ src: URL, to dest: URL) async throws {
-        // 用系統 unzip
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        proc.arguments = ["-q", src.path, "-d", dest.path]
-        try proc.run()
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else {
-            throw SigningError.signingFailed("解包失敗")
-        }
+        try FileManager.default.unzipItem(at: src, to: dest)
     }
     
     private func extractBundleIDs(from appURL: URL) async throws -> [String] {
