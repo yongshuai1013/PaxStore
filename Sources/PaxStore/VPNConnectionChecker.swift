@@ -79,6 +79,26 @@ public class VPNConnectionChecker {
         return result.sorted { $0.ifName < $1.ifName }
     }
 
+    /// 獲取 Wi-Fi (en0) 接口的 IPv4 地址（排除 link-local）
+    public func discoverWiFiIP() -> String? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(head) }
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let p = cursor {
+            let e = p.pointee
+            defer { cursor = e.ifa_next }
+            guard let namePtr = e.ifa_name, String(cString: namePtr) == "en0" else { continue }
+            let flags = Int32(e.ifa_flags)
+            guard (flags & IFF_UP) != 0, (flags & IFF_RUNNING) != 0 else { continue }
+            guard let addrPtr = e.ifa_addr, addrPtr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            if let ip = ipv4String(addrPtr), !ip.hasPrefix("169.254.") {
+                return ip
+            }
+        }
+        return nil
+    }
+
     private func probe(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
         await withCheckedContinuation { cont in
             guard let p = NWEndpoint.Port(rawValue: port) else {
@@ -132,14 +152,18 @@ public class VPNConnectionChecker {
 
         // 候選 1：點對點對端地址（LocalDevVPN 這類 /32 隧道）
         for t in tunnels { add(t.peerIP) }
-        // 候選 2：接口所在子網的 .1（WireGuard App 那種 /24 配置，設備端常用 .1）
+        // 候選 2：接口所在子網的 .1（WireGuard App 那種 /24 配置，設備端常用 .1；/32 跳過）
         for t in tunnels {
-            if let localRaw = ipv4Raw(t.localIP), let maskRaw = ipv4Raw(t.netmask),
+            if t.netmask != "255.255.255.255",
+               let localRaw = ipv4Raw(t.localIP), let maskRaw = ipv4Raw(t.netmask),
                let first = rawToIPv4((localRaw & maskRaw) + 1) {
                 add(first)
             }
         }
-        // 候選 3：手動輸入的地址
+        // 候選 3：Wi-Fi 直連（lockdownd 在 Wi-Fi 下監聽 62078，不一定需要經過 VPN）
+        let wifiIP = discoverWiFiIP()
+        if let wifiIP = wifiIP { add(wifiIP) }
+        // 候選 4：手動輸入的地址
         add(gatewayHost)
 
         // 排除接口自己的地址
@@ -153,6 +177,9 @@ public class VPNConnectionChecker {
             diag = tunnels.map {
                 "\($0.ifName)(本端\($0.localIP)/\($0.netmask.isEmpty ? "?" : $0.netmask) 對端\($0.peerIP.isEmpty ? "無" : $0.peerIP))"
             }.joined(separator: " ")
+        }
+        if let wifiIP = wifiIP {
+            diag += " Wi-Fi直連候選:\(wifiIP)"
         }
         if candidates.isEmpty {
             lastDiagnostic = diag + " 無候選地址可探測。"
