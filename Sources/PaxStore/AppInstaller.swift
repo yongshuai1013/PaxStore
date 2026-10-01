@@ -28,7 +28,7 @@ public class AppInstaller {
         // 4. 上傳 IPA (經 AFC)
         progress("上傳 IPA...", 20)
         let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-        await MainActor.run { self.status = "AFC 端口=\(afcPort) SSL=\(afcSSL)" }
+        progress("AFC 端口=\(afcPort) SSL=\(afcSSL)", 20)
         try await Task.sleep(nanoseconds: 1_500_000_000)
         let afc = AFCClient(host: host)
         try await afc.connect(port: afcPort, useSSL: afcSSL, identity: lockdown.identity)
