@@ -75,8 +75,12 @@ public class LockdownClient {
         ]
         var keyItem: CFTypeRef?
         status = SecItemCopyMatching(getKey as CFDictionary, &keyItem)
-        guard status == errSecSuccess, let secKey = keyItem as! SecKey? else {
-            throw LockdownError.tlsSetupFailed("私鑰取回失敗: \(status)\n" + diag.joined(separator: "\n"))
+        if status != errSecSuccess {
+            throw LockdownError.tlsSetupFailed("私鑰取回失敗 status=\(status)\n" + diag.joined(separator: "\n"))
+        }
+        diag.append("取回 status=0，item類型=\(type(of: keyItem))")
+        guard let secKey = keyItem as? SecKey else {
+            throw LockdownError.tlsSetupFailed("取回的不是 SecKey: \(type(of: keyItem))\n" + diag.joined(separator: "\n"))
         }
         diag.append("私鑰導入成功")
         
