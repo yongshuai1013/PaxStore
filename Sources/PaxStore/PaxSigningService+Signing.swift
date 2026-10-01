@@ -69,7 +69,7 @@ extension PaxSigningService {
             throw SigningError.certificateFailed("沒有可用證書")
         }
         
-        var deviceIDs = try await portal.fetchDevices(for: team, session: session).compactMap { $0.identifier }
+        var deviceIDs = try await portal.fetchDevices(for: team, session: session).compactMap { $0.deviceID }
         if deviceIDs.isEmpty {
             // 沒有設備，拋出明確錯誤（需要用戶提供 UDID 註冊）
             throw SigningError.profileFailed("團隊沒有註冊的設備，請先在下方輸入設備 UDID 註冊")
