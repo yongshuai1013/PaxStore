@@ -1,4 +1,5 @@
 import SwiftUI
+import SideSign
 
 struct ContentView: View {
     @State private var appleID = ""
@@ -9,6 +10,11 @@ struct ContentView: View {
     @State private var isLoading = false
     @State private var needs2FA = false
     @State private var loginTask: Task<Void, Never>?
+    
+    // 2FA 方式選擇彈窗
+    @State private var showMethodPicker = false
+    @State private var availablePhones: [TrustedPhoneNumber] = []
+    @State private var preferredMethod: TwoFactorDeliveryMode = .sms
     
     // 2FA 代碼提供者
     private let codeProvider = TwoFACodeProvider()
@@ -88,9 +94,44 @@ struct ContentView: View {
                 codeProvider.onCodeRequired = {
                     Task { @MainActor in
                         needs2FA = true
-                        errorMessage = "Apple 已發送 SMS，請輸入驗證碼"
+                        errorMessage = "Apple 已發送驗證碼，請輸入"
                     }
                 }
+                // 設置方式選擇回調：彈窗讓用戶選
+                codeProvider.onMethodRequired = { phones, preferred in
+                    Task { @MainActor in
+                        availablePhones = phones
+                        preferredMethod = preferred
+                        showMethodPicker = true
+                    }
+                }
+            }
+            .actionSheet(isPresented: $showMethodPicker) {
+                var buttons: [ActionSheet.Button] = []
+                
+                // 受信任設備
+                buttons.append(.default(Text("受信任設備\(preferredMethod == .trustedDevice ? "（推薦）" : "")")) {
+                    codeProvider.submitMethod(.trustedDevice)
+                })
+                
+                // 每個電話號碼的 SMS 和語音
+                for phone in availablePhones {
+                    let label = phone.number.isEmpty ? phone.id : phone.number
+                    buttons.append(.default(Text("SMS: \(label)")) {
+                        codeProvider.submitMethod(.sms(phoneID: phone.id))
+                    })
+                    buttons.append(.default(Text("語音電話: \(label)")) {
+                        codeProvider.submitMethod(.voice(phoneID: phone.id))
+                    })
+                }
+                
+                buttons.append(.cancel(Text("取消")))
+                
+                return ActionSheet(
+                    title: Text("選擇驗證方式"),
+                    message: Text("Apple 需要驗證你的身份"),
+                    buttons: buttons
+                )
             }
         }
     }
