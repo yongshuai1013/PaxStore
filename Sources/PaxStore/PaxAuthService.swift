@@ -12,7 +12,11 @@ public final class PaxAuthService {
     private init() {}
     
     /// 登入，成功返回 true，失敗拋錯
-    public func login(appleID: String, password: String) async throws -> Bool {
+    /// - Parameters:
+    ///   - appleID: Apple ID
+    ///   - password: 密碼
+    ///   - verificationCode: 2FA 驗證碼（如果上次登入要求 2FA）
+    public func login(appleID: String, password: String, verificationCode: String? = nil) async throws -> Bool {
         // 1. 拿 anisette（穩定身份）
         let identifier = resolveIdentifier()
         let existingBlob: Data? = loadADIBlob()
@@ -29,13 +33,29 @@ public final class PaxAuthService {
             saveADIBlob(newBlob)
         }
         
-        // 2. SideSign 登入（暫不處理 2FA）
+        // 2. SideSign 登入
         let portal = SideSign.DeveloperPortal.shared
+        
+        // 2FA handler：如果有驗證碼就用，沒有就拋錯讓 UI 提示輸入
+        let verificationHandler: SideSign.DeveloperPortal.VerificationHandler? = verificationCode.map { code in
+            { request in
+                // 根據請求類型返回驗證碼
+                switch request {
+                case .trustedDevice, .sms, .voice:
+                    return .verificationCode(code)
+                case .selectDeliveryMethod:
+                    // 預設用受信任設備
+                    return .requestTrustedDevice
+                }
+            }
+        }
+        
         let session = try await portal.authenticate(
             appleID: appleID,
             password: password,
             anisetteData: anisetteData,
-            xcodeVersion: "27.0 (27A242)"
+            xcodeVersion: "27.0 (27A242)",
+            verificationHandler: verificationHandler
         )
         
         // 3. 存 session（簡化版）
