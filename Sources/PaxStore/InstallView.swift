@@ -4,6 +4,8 @@ struct InstallView: View {
     var initialIPAURL: URL? = nil
     @State private var vpnConnected = false
     @State private var isCheckingVPN = false
+    @State private var vpnHost = "10.7.0.1"
+    @State private var vpnPort = "62078"
     @State private var ipaURL: URL?
     @State private var isPickingIPA = false
     @State private var isInstalling = false
@@ -33,9 +35,18 @@ struct InstallView: View {
                         .cornerRadius(12)
                     }
                 }
-                Text("VPN 網關: 10.7.0.1:62078")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                HStack {
+                    Text("主機")
+                    TextField("10.7.0.1", text: $vpnHost)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .autocapitalization(.none)
+                }
+                HStack {
+                    Text("端口")
+                    TextField("62078", text: $vpnPort)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .keyboardType(.numberPad)
+                }
                 Button("檢測連線") {
                     Task { await checkVPN() }
                 }
@@ -114,6 +125,8 @@ struct InstallView: View {
     
     private func checkVPN() async {
         isCheckingVPN = true
+        VPNConnectionChecker.shared.gatewayHost = vpnHost
+        VPNConnectionChecker.shared.gatewayPort = UInt16(vpnPort) ?? 62078
         vpnConnected = await VPNConnectionChecker.shared.checkConnection()
         isCheckingVPN = false
     }
