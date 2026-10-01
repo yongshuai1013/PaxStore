@@ -99,22 +99,31 @@ public final class PaxSigningService {
     
     // MARK: - Active Local Certificate
     
-    private let activeCertKey = "paxstore.signing.activeCert"
+    private let activeCertKey = "paxstore.signing.activeCertSerial"
+    private let activeKeyKey = "paxstore.signing.activePrivateKey"
     
-    /// 保存激活的本地證書（含私鑰）
+    /// 保存激活的本地證書序列號和私鑰
+    /// KeyStore 本身不是 Codable，只存序列號（String）和私鑰（Data）
     public func saveActiveCertificate(_ keyStore: SideSign.KeyStore) {
-        KeychainHelper.saveCodable(keyStore, forKey: activeCertKey)
+        KeychainHelper.saveString(keyStore.certificate.serialNumberHex, forKey: activeCertKey)
+        KeychainHelper.save(keyStore.privateKey, forKey: activeKeyKey)
         print("[PaxStore] 已保存激活證書: \(keyStore.certificate.serialNumberHex)")
     }
     
-    /// 讀取激活的本地證書
-    public func loadActiveCertificate() -> SideSign.KeyStore? {
-        return KeychainHelper.loadCodable(SideSign.KeyStore.self, forKey: activeCertKey)
+    /// 讀取激活的本地證書序列號
+    public func loadActiveCertificateSerial() -> String? {
+        return KeychainHelper.loadString(forKey: activeCertKey)
+    }
+    
+    /// 讀取激活證書的私鑰
+    public func loadActivePrivateKey() -> Data? {
+        return KeychainHelper.load(forKey: activeKeyKey)
     }
     
     /// 清除激活的本地證書
     public func clearActiveCertificate() {
         KeychainHelper.delete(forKey: activeCertKey)
+        KeychainHelper.delete(forKey: activeKeyKey)
         print("[PaxStore] 已清除激活證書")
     }
     
