@@ -55,25 +55,27 @@ extension PaxSigningService {
         // 查找現有
         let existing = try await portal.listProvisioningProfiles(for: team, session: session)
         if let found = existing.first(where: { $0.bundleIdentifier == appID.bundleIdentifier }) {
-            let downloaded = try await portal.downloadProvisioningProfile(profileID: found.identifier, team: team, session: session)
+            guard let profileID = found.identifier else { throw SigningError.profileFailed("Profile 缺少 ID") }
+            let downloaded = try await portal.downloadProvisioningProfile(profileID: profileID, team: team, session: session)
             return downloaded.data
         }
         
         // 需要證書 ID 來創建 profile
         let certs = try await portal.fetchCertificates(for: team, session: session)
-        guard let cert = certs.first else {
+        guard let cert = certs.first, let certID = cert.identifier else {
             throw SigningError.certificateFailed("沒有可用證書")
         }
         
         let newProfile = try await portal.createProvisioningProfile(
             name: "PaxStore \(appID.bundleIdentifier)",
             appID: appID,
-            certificateIDs: [cert.identifier],
+            certificateIDs: [certID],
             deviceIDs: [],
             team: team,
             session: session
         )
-        let downloaded = try await portal.downloadProvisioningProfile(profileID: newProfile.identifier, team: team, session: session)
+        guard let newProfileID = newProfile.identifier else { throw SigningError.profileFailed("新 Profile 缺少 ID") }
+        let downloaded = try await portal.downloadProvisioningProfile(profileID: newProfileID, team: team, session: session)
         return downloaded.data
     }
 }
