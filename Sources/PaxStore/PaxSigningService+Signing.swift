@@ -14,7 +14,11 @@ extension PaxSigningService {
             return found
         }
         
-        return try await portal.addAppID(withName: name, bundleIdentifier: bundleIdentifier, team: team, session: session)
+        // Apple 要求名字只能含字母數字和空格，把 bundle ID 的點換成空格
+        let sanitizedName = name.replacingOccurrences(of: ".", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        return try await portal.addAppID(withName: sanitizedName, bundleIdentifier: bundleIdentifier, team: team, session: session)
     }
     
     /// 只開啟 App Groups 單一開關（不重送整包 features，避免 4100）
