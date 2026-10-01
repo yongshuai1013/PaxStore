@@ -26,15 +26,15 @@ public class LockdownClient {
     /// 從配對檔建立 SecIdentity（經 Keychain）
     /// 從配對檔建立 SecIdentity（經 Keychain）
     private func makeIdentity(hostCertPEM: String, hostKeyPEM: String) throws -> SecIdentity {
-        guard let certDER = derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
-        guard let keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
+        guard let certDER = Self.derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
+        guard let keyDER = Self.derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
         
         let pemHeader = hostKeyPEM.components(separatedBy: .newlines).first(where: { $0.hasPrefix("-----") }) ?? "無PEM頭"
         let derHex = keyDER.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
         
         // 驗證 PKCS#8 結構
         var diag: [String] = ["[\(pemHeader)] DER \(keyDER.count)字節 頭:\(derHex)"]
-        guard let pkcs1Range = validatePKCS8(keyDER, diag: &diag) else {
+        guard let pkcs1Range = Self.validatePKCS8(keyDER, diag: &diag) else {
             throw LockdownError.tlsSetupFailed("私鑰結構驗證失敗\n" + diag.joined(separator: "\n"))
         }
         diag.append("PKCS#8 結構有效，內層 PKCS#1 \(pkcs1Range.count)字節")
