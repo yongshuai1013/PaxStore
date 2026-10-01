@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct InstallView: View {
+    var initialIPAURL: URL? = nil
     @State private var vpnConnected = false
     @State private var isCheckingVPN = false
     @State private var ipaURL: URL?
@@ -87,6 +88,9 @@ struct InstallView: View {
         .navigationTitle("安裝 App")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            if let initial = initialIPAURL {
+                ipaURL = initial
+            }
             Task { await checkVPN() }
         }
         .sheet(isPresented: $isPickingIPA) {
