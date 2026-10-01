@@ -3,9 +3,11 @@ import SwiftUI
 struct ContentView: View {
     @State private var appleID = ""
     @State private var password = ""
+    @State private var verificationCode = ""
     @State private var isLoggedIn = false
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var needs2FA = false
     
     var body: some View {
         NavigationView {
@@ -17,6 +19,8 @@ struct ContentView: View {
                             isLoggedIn = false
                             appleID = ""
                             password = ""
+                            verificationCode = ""
+                            needs2FA = false
                         }
                         .foregroundColor(.red)
                     }
@@ -26,6 +30,11 @@ struct ContentView: View {
                             .autocapitalization(.none)
                             .keyboardType(.emailAddress)
                         SecureField("密碼", text: $password)
+                        
+                        if needs2FA {
+                            TextField("2FA 驗證碼", text: $verificationCode)
+                                .keyboardType(.numberPad)
+                        }
                         
                         if let error = errorMessage {
                             Text(error)
@@ -37,10 +46,10 @@ struct ContentView: View {
                             if isLoading {
                                 ProgressView()
                             } else {
-                                Text("登入")
+                                Text(needs2FA ? "驗證並登入" : "登入")
                             }
                         }
-                        .disabled(isLoading || appleID.isEmpty || password.isEmpty)
+                        .disabled(isLoading || appleID.isEmpty || password.isEmpty || (needs2FA && verificationCode.isEmpty))
                     }
                     
                     Section(footer: Text("VPN 外置：請確保外部 VPN 已連接（10.7.0.1 可達）")) {
@@ -60,18 +69,27 @@ struct ContentView: View {
             do {
                 let success = try await PaxAuthService.shared.login(
                     appleID: appleID,
-                    password: password
+                    password: password,
+                    verificationCode: needs2FA ? verificationCode : nil
                 )
                 await MainActor.run {
                     isLoading = false
                     if success {
                         isLoggedIn = true
+                        needs2FA = false
                     }
                 }
             } catch {
                 await MainActor.run {
                     isLoading = false
-                    errorMessage = "登入失敗：\(error.localizedDescription)"
+                    let msg = error.localizedDescription
+                    // 檢測是否需要 2FA
+                    if msg.contains("two-factor") || msg.contains("2FA") {
+                        needs2FA = true
+                        errorMessage = "請輸入 Apple 發送的 2FA 驗證碼"
+                    } else {
+                        errorMessage = "登入失敗：\(msg)"
+                    }
                 }
             }
         }
