@@ -2,12 +2,15 @@ import Foundation
 import Security
 
 // SecureTransport 常量（Swift 未導出，用原始值）
-private let errSecWouldBlock_Swift_Swift: OSStatus = -3101
-private let errSSLServerAuthCompleted_Swift_Swift: OSStatus = -9841
+private let Self.errWouldBlock_Swift: OSStatus = -3101
+private let Self.errServerAuthCompleted_Swift: OSStatus = -9841
 
 /// Lockdown 協議客戶端（經 VPN 隧道連接設備）
 /// 連接流程：明文 TCP → QueryType/ValidatePair/StartSession → TLS 升級（同一 socket）
 public class LockdownClient {
+    // SecureTransport 常量（Swift 未導出，用原始值）
+    private static let errWouldBlock: OSStatus = -3101
+    private static let errServerAuthCompleted: OSStatus = -9841
     private var socketFD: Int32 = -1
     private var sslContext: SSLContext?
     private var useSSL = false
@@ -463,7 +466,7 @@ public class LockdownClient {
             return errSecIO
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock_Swift : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? Self.errWouldBlock : errSecIO
         }
     }
 
@@ -475,7 +478,7 @@ public class LockdownClient {
             return errSecSuccess
         } else {
             dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock_Swift : errSecIO
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? Self.errWouldBlock : errSecIO
         }
     }
 
@@ -498,11 +501,11 @@ public class LockdownClient {
         // 握手循環
         repeat {
             status = SSLHandshake(ctx)
-            if status == errSSLServerAuthCompleted_Swift {
+            if status == Self.errServerAuthCompleted {
                 // 放行自簽名服務器證書，繼續握手
                 continue
             }
-        } while status == errSecWouldBlock_Swift || status == errSSLServerAuthCompleted_Swift
+        } while status == Self.errWouldBlock || status == Self.errServerAuthCompleted
         guard status == errSecSuccess else {
             throw LockdownError.tlsSetupFailed("TLS 握手失敗: \(status)")
         }
@@ -516,11 +519,11 @@ public class LockdownClient {
             while sent < data.count {
                 var processed = 0
                 let status = SSLWrite(ctx, base.advanced(by: sent), data.count - sent, &processed)
-                if status != errSecSuccess && status != errSecWouldBlock_Swift {
+                if status != errSecSuccess && status != Self.errWouldBlock {
                     throw LockdownError.tlsSetupFailed("SSLWrite: \(status)")
                 }
                 sent += processed
-                if processed == 0 && status == errSecWouldBlock_Swift { continue }
+                if processed == 0 && status == Self.errWouldBlock { continue }
             }
         }
     }
@@ -534,12 +537,12 @@ public class LockdownClient {
             let toRead = min(buf.count, length - result.count)
             var processed = 0
             let status = SSLRead(ctx, &buf, toRead, &processed)
-            if status != errSecSuccess && status != errSecWouldBlock_Swift {
+            if status != errSecSuccess && status != Self.errWouldBlock {
                 throw LockdownError.tlsSetupFailed("SSLRead: \(status)")
             }
             if processed > 0 {
                 result.append(buf, count: processed)
-            } else if status != errSecWouldBlock_Swift {
+            } else if status != Self.errWouldBlock {
                 throw LockdownError.incompleteData
             }
         }
