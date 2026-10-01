@@ -214,10 +214,38 @@ struct PairingFileManagementView: View {
             }
             try FileManager.default.copyItem(at: url, to: dest)
             url.stopAccessingSecurityScopedResource()
+            // 驗證私鑰：結構＋p×q=n 數學驗算，壞的直接拒收
+            if let badReason = validatePairingPrivateKey(at: dest) {
+                try? FileManager.default.removeItem(at: dest)
+                errorMessage = "配對檔私鑰無效，已拒收：\(badReason)\n請重新生成配對檔再導入。"
+                loadPairingFiles()
+                return
+            }
             loadPairingFiles()
         } catch {
             errorMessage = "導入失敗: \(error.localizedDescription)"
         }
+    }
+    
+    /// 驗證配對檔私鑰，返回 nil 表示通過，否則返回原因
+    private func validatePairingPrivateKey(at url: URL) -> String? {
+        guard let plistData = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] else {
+            return "無法解析 plist"
+        }
+        let hostKeyPEM = (plist["HostPrivateKey"] as? Data).flatMap({ String(data: $0, encoding: .utf8) })
+            ?? (plist["HostPrivateKey"] as? String)
+        guard let pem = hostKeyPEM, let der = LockdownClient.derFromPEM(pem) else {
+            return "HostPrivateKey 不是有效的 PEM"
+        }
+        var diag: [String] = []
+        guard LockdownClient.validatePKCS8(der, diag: &diag) != nil else {
+            return "PKCS#8 結構無效：" + diag.joined(separator: "；")
+        }
+        if diag.contains(where: { $0.contains("p×q≠n") }) {
+            return "私鑰參數數學驗算失敗（p×q≠n），文件在複製時已損壞"
+        }
+        return nil
     }
     
     private func resetPairingFiles() {
