@@ -354,66 +354,192 @@ public class LockdownClient {
             throw LockdownError.missingCredentials
         }
         self.hostID = hostID
-        
-        let identity = try makeIdentity(hostCertPEM: hostCertPEM, hostKeyPEM: hostKeyPEM)
-        self.pairIdentity = identity
-        
-        let tlsOptions = NWProtocolTLS.Options()
-        sec_protocol_options_set_local_identity(
-            tlsOptions.securityProtocolOptions,
-            sec_identity_create(identity)!
-        )
-        // 不驗證服務器證書（lockdownd 用自簽名 DeviceCertificate）
-        sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, complete in
-            complete(true)
-        }, .global())
-        
-        let params = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
-        connection = NWConnection(
-            host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: port)!,
-            using: params
-        )
-        
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            var resumed = false
-            connection?.stateUpdateHandler = { state in
-                guard !resumed else { return }
-                switch state {
-                case .ready:
-                    resumed = true
-                    continuation.resume()
-                case .failed(let error):
-                    resumed = true
-                    continuation.resume(throwing: error)
-                case .cancelled:
-                    resumed = true
-                    continuation.resume(throwing: LockdownError.connectionCancelled)
-                default: break
-                }
-            }
-            connection?.start(queue: .global())
-        }
-        
-        // --- lockdown 握手 ---
-        // 1. QueryType
-        let qt = try await sendPlist(["Label": "PaxStore", "Request": "QueryType"])
+
+        // 階段1: 明文 TCP 連接
+        try tcpConnect()
+
+        // 階段2: 明文握手
+        let qt = try sendPlist(["Label": "PaxStore", "Request": "QueryType"])
         guard (qt["Type"] as? String) == "com.apple.mobile.lockdown" else {
             throw LockdownError.handshakeFailed("QueryType 回應異常")
         }
-        // 2. ValidatePair
-        var pairRecord = plist
-        // PairRecord 不需要包含 HostCertificate 等，只傳設備相關的（簡化：傳整個 plist，lockdownd 會忽略多餘欄位）
-        let vp = try await sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": pairRecord])
+        let vp = try sendPlist(["Label": "PaxStore", "Request": "ValidatePair", "PairRecord": plist])
         guard (vp["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("ValidatePair 失敗: \(vp)")
         }
-        // 3. StartSession
-        let ss = try await sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
+        let ss = try sendPlist(["Label": "PaxStore", "Request": "StartSession", "HostID": hostID])
         guard (ss["Result"] as? String) == "Success" else {
             throw LockdownError.handshakeFailed("StartSession 失敗: \(ss)")
         }
         self.sessionID = ss["SessionID"] as? String
+
+        // 階段3: 在同一條 TCP 上升級 TLS（客戶端證書認證）
+        let identity = try makeIdentity(hostCertPEM: hostCertPEM, hostKeyPEM: hostKeyPEM)
+        self.pairIdentity = identity
+        try upgradeToTLS(identity: identity)
+        self.useSSL = true
+    }
+
+    // MARK: - BSD Socket 明文層
+
+    private func tcpConnect() throws {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw LockdownError.tlsSetupFailed("socket 創建失敗") }
+        var flags = fcntl(fd, F_GETFL, 0)
+        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        inet_pton(AF_INET, host, &addr.sin_addr)
+        let rc = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if rc < 0 && errno != EINPROGRESS {
+            close(fd)
+            throw LockdownError.tlsSetupFailed("TCP 連接失敗: \(String(cString: strerror(errno)))")
+        }
+        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        let pr = poll(&pfd, 1, 10000)
+        if pr <= 0 {
+            close(fd)
+            throw LockdownError.tlsSetupFailed(pr == 0 ? "TCP 連接超時（10秒）" : "poll 失敗")
+        }
+        var soErr: Int32 = 0
+        var soErrLen = socklen_t(MemoryLayout<Int32>.size)
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &soErr, &soErrLen)
+        if soErr != 0 {
+            close(fd)
+            throw LockdownError.tlsSetupFailed("TCP 連接失敗: \(String(cString: strerror(soErr)))")
+        }
+        flags = fcntl(fd, F_GETFL, 0)
+        _ = fcntl(fd, F_SETFL, flags & ~O_NONBLOCK)
+        var tv = timeval(tv_sec: 30, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        self.socketFD = fd
+    }
+
+    private func sendRaw(_ data: Data) throws {
+        var sent = 0
+        try data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            guard let base = ptr.baseAddress else { throw LockdownError.tlsSetupFailed("空數據") }
+            while sent < data.count {
+                let n = send(socketFD, base.advanced(by: sent), data.count - sent, 0)
+                if n <= 0 { throw LockdownError.tlsSetupFailed("發送失敗: \(String(cString: strerror(errno)))") }
+                sent += n
+            }
+        }
+    }
+
+    private func recvRaw(length: Int) throws -> Data {
+        var result = Data()
+        result.reserveCapacity(length)
+        var buf = [UInt8](repeating: 0, count: min(length, 65536))
+        while result.count < length {
+            let toRead = min(buf.count, length - result.count)
+            let n = recv(socketFD, &buf, toRead, 0)
+            if n <= 0 { throw LockdownError.incompleteData }
+            result.append(buf, count: n)
+        }
+        return result
+    }
+
+    // MARK: - TLS 升級（SecureTransport）
+
+    private static let sslReadFunc: SSLReadFunc = { connection, data, dataLength in
+        let fd = Int32(Int(bitPattern: connection))
+        let n = recv(fd, data, dataLength.pointee, 0)
+        if n > 0 {
+            dataLength.pointee = n
+            return errSecSuccess
+        } else if n == 0 {
+            dataLength.pointee = 0
+            return errSecIO
+        } else {
+            dataLength.pointee = 0
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock : errSecIO
+        }
+    }
+
+    private static let sslWriteFunc: SSLWriteFunc = { connection, data, dataLength in
+        let fd = Int32(Int(bitPattern: connection))
+        let n = send(fd, data, dataLength.pointee, 0)
+        if n > 0 {
+            dataLength.pointee = n
+            return errSecSuccess
+        } else {
+            dataLength.pointee = 0
+            return (errno == EAGAIN || errno == EWOULDBLOCK) ? errSecWouldBlock : errSecIO
+        }
+    }
+
+    private func upgradeToTLS(identity: SecIdentity) throws {
+        guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
+            throw LockdownError.tlsSetupFailed("SSLContext 創建失敗")
+        }
+        self.sslContext = ctx
+        let connRef = unsafeBitCast(Int(socketFD), to: SSLConnectionRef.self)
+        var status = SSLSetConnection(ctx, connRef)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetConnection: \(status)") }
+        status = SSLSetIOFuncs(ctx, Self.sslReadFunc, Self.sslWriteFunc)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetIOFuncs: \(status)") }
+        // 客戶端身份（證書+私鑰）
+        status = SSLSetCertificate(ctx, [identity] as CFArray)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetCertificate: \(status)") }
+        // 不驗證服務器（lockdownd 自簽名），但要在 server auth 處手動放行
+        status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetSessionOption: \(status)") }
+        // 握手循環
+        repeat {
+            status = SSLHandshake(ctx)
+            if status == errSSLServerAuthCompleted {
+                // 放行自簽名服務器證書，繼續握手
+                continue
+            }
+        } while status == errSecWouldBlock || status == errSSLServerAuthCompleted
+        guard status == errSecSuccess else {
+            throw LockdownError.tlsSetupFailed("TLS 握手失敗: \(status)")
+        }
+    }
+
+    private func sslWrite(_ data: Data) throws {
+        guard let ctx = sslContext else { throw LockdownError.notConnected }
+        var sent = 0
+        try data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
+            guard let base = ptr.baseAddress else { throw LockdownError.tlsSetupFailed("空數據") }
+            while sent < data.count {
+                var processed = 0
+                let status = SSLWrite(ctx, base.advanced(by: sent), data.count - sent, &processed)
+                if status != errSecSuccess && status != errSecWouldBlock {
+                    throw LockdownError.tlsSetupFailed("SSLWrite: \(status)")
+                }
+                sent += processed
+                if processed == 0 && status == errSecWouldBlock { continue }
+            }
+        }
+    }
+
+    private func sslRead(length: Int) throws -> Data {
+        guard let ctx = sslContext else { throw LockdownError.notConnected }
+        var result = Data()
+        result.reserveCapacity(length)
+        var buf = [UInt8](repeating: 0, count: min(length, 16384))
+        while result.count < length {
+            let toRead = min(buf.count, length - result.count)
+            var processed = 0
+            let status = SSLRead(ctx, &buf, toRead, &processed)
+            if status != errSecSuccess && status != errSecWouldBlock {
+                throw LockdownError.tlsSetupFailed("SSLRead: \(status)")
+            }
+            if processed > 0 {
+                result.append(buf, count: processed)
+            } else if status != errSecWouldBlock {
+                throw LockdownError.incompleteData
+            }
+        }
+        return result
     }
     
     /// 發送 plist 消息並接收回應
