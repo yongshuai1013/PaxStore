@@ -137,59 +137,6 @@ public class VPNConnectionChecker {
         return errno == EADDRINUSE
     }
 
-    /// 讀系統路由表（NET_RT_DUMP），找出經 utun 接口的路由目的/網關 IP（仿 minimuxer 的路由推導）
-    private func discoverUtunRouteIPs() -> [String] {
-        var out: [String] = []
-        var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_DUMP, 0]
-        var len = 0
-        guard sysctl(&mib, UInt32(mib.count), nil, &len, nil, 0) == 0, len > 0 else { return [] }
-        let buf = UnsafeMutableRawPointer.allocate(byteCount: len, alignment: 1)
-        defer { buf.deallocate() }
-        var l = len
-        guard sysctl(&mib, UInt32(mib.count), buf, &l, nil, 0) == 0 else { return [] }
-        var p = buf
-        let end = buf.advanced(by: l)
-        while p < end {
-            let hdr = p.assumingMemoryBound(to: rt_msghdr.self).pointee
-            let msgLen = Int(hdr.rtm_msglen)
-            guard msgLen >= MemoryLayout<rt_msghdr>.size, msgLen > 0 else { break }
-            // 只看經 utun 的接口
-            var ifName = ""
-            if hdr.rtm_index > 0 {
-                var nbuf = [CChar](repeating: 0, count: Int(IFNAMSIZ))
-                if if_indextoname(UInt32(hdr.rtm_index), &nbuf) != nil {
-                    ifName = String(cString: nbuf)
-                }
-            }
-            if ifName.hasPrefix("utun") {
-                // 依次解析 rtm_addrs 指示的 sockaddr（順序：DST, GATEWAY, NETMASK, ...）
-                var q = p.advanced(by: MemoryLayout<rt_msghdr>.size)
-                let qEnd = p.advanced(by: msgLen)
-                var bit: Int32 = 1
-                for _ in 0..<8 {
-                    if (hdr.rtm_addrs & bit) != 0 {
-                        if q < qEnd {
-                            let sa = q.assumingMemoryBound(to: sockaddr.self).pointee
-                            if sa.sa_family == UInt8(AF_INET), sa.sa_len >= UInt8(MemoryLayout<sockaddr_in>.size) {
-                                var sin = q.assumingMemoryBound(to: sockaddr_in.self).pointee
-                                var b = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                                inet_ntop(AF_INET, &sin.sin_addr, &b, socklen_t(INET_ADDRSTRLEN))
-                                let ip = String(cString: b)
-                                if !ip.isEmpty, ip != "0.0.0.0" { out.append(ip) }
-                            }
-                            let adv = (Int(sa.sa_len) + MemoryLayout<Int>.size - 1) & ~(MemoryLayout<Int>.size - 1)
-                            q = q.advanced(by: max(adv, MemoryLayout<Int>.size))
-                        }
-                    }
-                    bit <<= 1
-                }
-            }
-            p = p.advanced(by: msgLen)
-            if p >= end { break }
-        }
-        return out
-    }
-
     private func probe(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {
         await withCheckedContinuation { cont in
             guard let p = NWEndpoint.Port(rawValue: port) else {
@@ -259,9 +206,6 @@ public class VPNConnectionChecker {
         if !candidates.contains("127.0.0.1") { candidates.append("127.0.0.1") }
         // 候選 4：手動輸入的地址
         add(gatewayHost)
-        // 候選 4b：路由表推導（仿 minimuxer：utun 路由的目的/網關地址）
-        let routeIPs = discoverUtunRouteIPs()
-        for rip in routeIPs { add(rip) }
         // 候選 5：IPv6（之前只掃了 v4；若 lockdownd 綁 [::]，v6 環回可能通）
         if !candidates.contains("::1") { candidates.append("::1") }
         let wifiIP6 = discoverWiFiIPv6()
