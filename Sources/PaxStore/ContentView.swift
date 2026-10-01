@@ -42,6 +42,9 @@ struct ContentView: View {
                         NavigationLink(destination: SigningFlowView()) {
                             Text("簽名 IPA")
                         }
+                        NavigationLink(destination: PairingFileManagementView()) {
+                            Text("配對檔管理")
+                        }
                         Button("登出") {
                             PaxAuthService.shared.logout()
                             isLoggedIn = false
