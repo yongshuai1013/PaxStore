@@ -47,8 +47,8 @@ extension PaxSigningService {
         return try await portal.assignAppGroups(groups, to: appID, team: team, session: session)
     }
     
-    /// 獲取 provisioning profile 數據（查找或創建，然後下載）
-    public func provisioningProfileData(for appID: SideSign.AppID, team: SideSign.Team) async throws -> Data {
+    /// 獲取 provisioning profile（查找或創建，然後下載）
+    public func provisioningProfile(for appID: SideSign.AppID, team: SideSign.Team) async throws -> SideSign.ProvisioningProfile {
         let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         
@@ -56,8 +56,7 @@ extension PaxSigningService {
         let existing = try await portal.listProvisioningProfiles(for: team, session: session)
         if let found = existing.first(where: { $0.bundleIdentifier == appID.bundleIdentifier }) {
             guard let profileID = found.identifier else { throw SigningError.profileFailed("Profile 缺少 ID") }
-            let downloaded = try await portal.downloadProvisioningProfile(profileID: profileID, team: team, session: session)
-            return downloaded.data
+            return try await portal.downloadProvisioningProfile(profileID: profileID, team: team, session: session)
         }
         
         // 需要證書 ID 來創建 profile
@@ -75,7 +74,6 @@ extension PaxSigningService {
             session: session
         )
         guard let newProfileID = newProfile.identifier else { throw SigningError.profileFailed("新 Profile 缺少 ID") }
-        let downloaded = try await portal.downloadProvisioningProfile(profileID: newProfileID, team: team, session: session)
-        return downloaded.data
+        return try await portal.downloadProvisioningProfile(profileID: newProfileID, team: team, session: session)
     }
 }
