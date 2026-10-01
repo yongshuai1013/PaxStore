@@ -3,7 +3,6 @@ import SwiftUI
 struct InstallView: View {
     var initialIPAURL: URL? = nil
     @State private var vpnConnected = false
-    @State private var isCheckingVPN = false
     @State private var vpnDiagnostic = ""
     @State private var ipaURL: URL?
     @State private var isPickingIPA = false
