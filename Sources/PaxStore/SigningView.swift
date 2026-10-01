@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import SideSign
 
 /// 證書管理頁（仿 SideStore）
