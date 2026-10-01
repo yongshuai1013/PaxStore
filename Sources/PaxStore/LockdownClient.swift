@@ -17,7 +17,7 @@ public class LockdownClient {
     }
     
     /// PEM 轉 DER
-    private func derFromPEM(_ pem: String) -> Data? {
+    static func derFromPEM(_ pem: String) -> Data? {
         let lines = pem.components(separatedBy: .newlines)
         let b64 = lines.filter { !$0.hasPrefix("-----") && !$0.isEmpty }.joined()
         return Data(base64Encoded: b64)
@@ -107,7 +107,7 @@ public class LockdownClient {
     }
     
     /// 驗證 PKCS#8 結構，返回內層 PKCS#1 的範圍
-    private func validatePKCS8(_ data: Data, diag: inout [String]) -> Range<Int>? {
+    static func validatePKCS8(_ data: Data, diag: inout [String]) -> Range<Int>? {
         let bytes = [UInt8](data)
         var pos = 0
         var intBytes: [Int: [UInt8]] = [:]
@@ -229,7 +229,7 @@ public class LockdownClient {
     }
     
     /// 大數乘法驗算 p*q==n（字節均為大端序，可能含前導零）
-    private func bigMulEquals(_ pBytes: [UInt8], _ qBytes: [UInt8], _ nBytes: [UInt8]) -> Bool {
+    static func bigMulEquals(_ pBytes: [UInt8], _ qBytes: [UInt8], _ nBytes: [UInt8]) -> Bool {
         // 去前導零，轉小端序 UInt64 數組
         func toWords(_ b: [UInt8]) -> [UInt64] {
             var bytes = b
@@ -279,7 +279,7 @@ public class LockdownClient {
     }
     
     /// 讀取 DER 長度編碼，返回 (長度, 佔用字節數)
-    private func readDERLength(_ bytes: [UInt8], _ pos: Int) -> (Int, Int)? {
+    static func readDERLength(_ bytes: [UInt8], _ pos: Int) -> (Int, Int)? {
         guard pos < bytes.count else { return nil }
         let b = bytes[pos]
         if b < 0x80 { return (Int(b), 1) }
