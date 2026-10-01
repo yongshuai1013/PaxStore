@@ -45,6 +45,10 @@ struct SigningView: View {
             }
             
             Section(header: Text("CERTIFICATES")) {
+                Button("創建新證書") {
+                    createCertificate()
+                }
+                .disabled(isLoading)
                 if certificates.isEmpty {
                     Text(isLoading ? "載入中..." : "無")
                 } else {
@@ -108,6 +112,27 @@ struct SigningView: View {
                     self.certificates = result
                     self.isLoading = false
                 }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = error.localizedDescription
+                    self.isLoading = false
+                }
+            }
+        }
+    }
+    
+    private func createCertificate() {
+        guard let team = teams.first else { return }
+        isLoading = true
+        errorMessage = nil
+        Task {
+            do {
+                let keyStore = try await PaxSigningService.shared.createCertificate(for: team)
+                await MainActor.run {
+                    self.activeCertSerial = keyStore.certificate.serialNumberHex
+                    self.isLoading = false
+                }
+                loadCertificates(for: team)
             } catch {
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
