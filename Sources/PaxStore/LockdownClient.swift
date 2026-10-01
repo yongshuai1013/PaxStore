@@ -246,31 +246,34 @@ public class LockdownClient {
             return words
         }
         let pw = toWords(pBytes), qw = toWords(qBytes)
-        // result 用兩個 UInt64 存 128 位進位，避免溢出
         var result = [UInt64](repeating: 0, count: pw.count + qw.count + 1)
         for i in 0..<pw.count {
-            var carry: UInt64 = 0  // 進位 < 2^64+4，單字夠
+            var carryLo: UInt64 = 0
+            var carryHi: UInt64 = 0  // 0 或 1，處理 carry = 2^64 的極端情況
             for j in 0..<qw.count {
-                // total = result[i+j] + pw[i]*qw[j] + carry  (128位中間值)
+                // total = result[i+j] + pw[i]*qw[j] + (carryHi*2^64+carryLo)
                 let (phi, plo) = pw[i].multipliedFullWidth(by: qw[j])
-                // 先加 plo
                 let (s1, o1) = result[i+j].addingReportingOverflow(plo)
-                // 再加 carry（carry < 2^64+4，最多溢出一次）
-                let (s2, o2) = s1.addingReportingOverflow(carry)
-                result[i+j] = s2
-                // 新 carry = phi + o1 + o2 (+ s2的高位溢出已由o2捕獲)
-                // phi < 2^64, o1+o2 <= 2，故 carry < 2^64+2
-                let (c1, oc1) = phi.addingReportingOverflow(o1 ? 1 : 0)
-                let (c2, _) = c1.addingReportingOverflow(o2 ? 1 : 0)
-                carry = c2
-                _ = oc1 // phi+2 不可能溢出 64 位
+                let (s2, o2) = s1.addingReportingOverflow(carryLo)
+                // carryHi*2^64 加到 s2 上：相當於再進位 carryHi
+                let (s3, o3) = s2.addingReportingOverflow(carryHi)
+                result[i+j] = s3
+                // 新 carry = phi + o1 + o2 + o3（< 2^64+2，用兩字存）
+                let (t1, to1) = phi.addingReportingOverflow(o1 ? 1 : 0)
+                let (t2, to2) = t1.addingReportingOverflow(o2 ? 1 : 0)
+                let (t3, to3) = t2.addingReportingOverflow(o3 ? 1 : 0)
+                carryLo = t3
+                carryHi = (to1 ? 1 : 0) + (to2 ? 1 : 0) + (to3 ? 1 : 0)
             }
+            // 把 carry 寫回 result[i+count...]（最多兩字）
             var k = i + qw.count
-            var c = carry
-            while c > 0 && k < result.count {
-                let (s, o) = result[k].addingReportingOverflow(c)
-                result[k] = s
-                c = o ? 1 : 0
+            var clo = carryLo, chi = carryHi
+            while (clo > 0 || chi > 0) && k < result.count {
+                let (s1, o1) = result[k].addingReportingOverflow(clo)
+                let (s2, o2) = s1.addingReportingOverflow(chi)
+                result[k] = s2
+                clo = (o1 ? 1 : 0) + (o2 ? 1 : 0)
+                chi = 0  // 進位鏈不會再產生 carryHi
                 k += 1
             }
         }
