@@ -20,15 +20,47 @@ public final class PaxSigningService {
         return session
     }
     
+    /// 獲取帶新鮮 anisette 的 session（每次 DeveloperPortal 調用前必須刷新）
+    /// 原因：anisette 含一次性 OTP，登入時已消費，重用會導致 Apple 回 1100
+    private func sessionWithFreshAnisette() async throws -> (account: SideSign.Account, session: SideSign.Session) {
+        let authSession = try loadSession()
+        
+        // 從 Keychain 取穩定的 anisette 身份
+        guard let uuidString = KeychainHelper.loadString(forKey: "paxstore.anisette.identifier"),
+              let identifier = UUID(uuidString: uuidString) else {
+            throw SigningError.certificateFailed("找不到 anisette 身份，請重新登入")
+        }
+        let existingBlob = KeychainHelper.load(forKey: "paxstore.anisette.adiblob")
+        
+        // 取新鮮 anisette
+        let servers = AnisetteServerManager.shared.serversForLogin()
+        let urls = servers.isEmpty ? [URL(string: "https://ani.sidestore.zip")!] : servers
+        let manager = SideSign.AnisetteDataManager.shared
+        let (freshAnisette, newBlob) = try await manager.fetchAnisetteDataWithFailover(
+            servers: urls,
+            identifier: identifier,
+            existingAdiBlob: existingBlob
+        )
+        if let newBlob = newBlob {
+            KeychainHelper.save(newBlob, forKey: "paxstore.anisette.adiblob")
+        }
+        
+        // 換上新鮮 anisette
+        var freshSession = authSession.session
+        freshSession.anisetteData = freshAnisette
+        
+        return (authSession.account, freshSession)
+    }
+    
     // MARK: - Teams
     
     /// 獲取該 Apple ID 下的所有 Team
     public func fetchTeams() async throws -> [SideSign.Team] {
-        let authSession = try loadSession()
+        let (account, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         let teams = try await portal.fetchTeams(
-            for: authSession.account,
-            session: authSession.session
+            for: account,
+            session: session
         )
         print("[PaxStore] 找到 \(teams.count) 個 Team")
         return teams
@@ -38,11 +70,11 @@ public final class PaxSigningService {
     
     /// 獲取指定 Team 下的所有證書
     public func fetchCertificates(for team: SideSign.Team) async throws -> [SideSign.X509Certificate] {
-        let authSession = try loadSession()
+        let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         let certs = try await portal.fetchCertificates(
             for: team,
-            session: authSession.session
+            session: session
         )
         print("[PaxStore] 找到 \(certs.count) 個證書")
         return certs
@@ -51,13 +83,13 @@ public final class PaxSigningService {
     /// 為指定 Team 創建新的開發證書
     /// - Returns: 包含私鑰的 KeyStore（必須保存好，簽名時要用）
     public func createCertificate(for team: SideSign.Team, machineName: String = "PaxStore") async throws -> SideSign.KeyStore {
-        let authSession = try loadSession()
+        let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         let keyStore = try await portal.addCertificate(
             machineName: machineName,
             type: .development,
             to: team,
-            session: authSession.session
+            session: session
         )
         print("[PaxStore] 證書創建成功")
         return keyStore
@@ -65,12 +97,12 @@ public final class PaxSigningService {
     
     /// 撤銷指定證書
     public func revokeCertificate(_ certificate: SideSign.X509Certificate, for team: SideSign.Team) async throws {
-        let authSession = try loadSession()
+        let (_, session) = try await sessionWithFreshAnisette()
         let portal = SideSign.DeveloperPortal.shared
         let success = try await portal.revokeCertificate(
             certificate,
             for: team,
-            session: authSession.session
+            session: session
         )
         if !success {
             throw SigningError.certificateFailed("撤銷返回失敗")
