@@ -33,7 +33,6 @@ targets:
       - Sources/PaxStore
     dependencies:
       - target: PaxStoreCore
-      - target: PaxStoreTunnel
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
@@ -45,15 +44,3 @@ targets:
         UILaunchStoryboardName: LaunchScreen
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-
-  PaxStoreTunnel:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "15.0"
-    sources:
-      - Sources/PaxStoreTunnel
-    settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app.tunnel
-      CODE_SIGN_ENTITLEMENTS: Sources/PaxStoreTunnel/PaxStoreTunnel.entitlements
-    info:
-      path: Sources/PaxStoreTunnel/Info.plist
