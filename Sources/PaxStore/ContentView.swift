@@ -33,6 +33,9 @@ struct ContentView: View {
                 if isLoggedIn {
                     Section(header: Text("已登入")) {
                         Text(appleID)
+                        NavigationLink(destination: SigningView()) {
+                            Text("簽名管理")
+                        }
                         Button("登出") {
                             PaxAuthService.shared.logout()
                             isLoggedIn = false
