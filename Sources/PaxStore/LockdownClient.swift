@@ -110,6 +110,7 @@ public class LockdownClient {
     private func validatePKCS8(_ data: Data, diag: inout [String]) -> Range<Int>? {
         let bytes = [UInt8](data)
         var pos = 0
+        var intBytes: [Int: [UInt8]] = [:]
         
         // 外層 SEQUENCE
         guard pos < bytes.count && bytes[pos] == 0x30 else { diag.append("外層不是 SEQUENCE"); return nil }
@@ -201,6 +202,7 @@ public class LockdownClient {
             } else {
                 diag.append("第\(intCount)個 [\(name)] 長度\(ilen) ✓")
             }
+            intBytes[intCount] = Array(bytes[pos..<(pos+ilen)])
             pos += ilen
             intCount += 1
         }
@@ -214,7 +216,66 @@ public class LockdownClient {
         }
         diag.append("PKCS#1 9個INTEGER齊全，n約\(nBits)位 ✓")
         
+        // 驗算 p*q 是否等於 n（揪出 Base64 複製損壞導致的數學無效）
+        if let pB = intBytes[4], let qB = intBytes[5], let nB = intBytes[1] {
+            if bigMulEquals(pB, qB, nB) {
+                diag.append("p×q=n 數學驗算通過 ✓")
+            } else {
+                diag.append("p×q≠n 數學驗算失敗 ✗（私鑰參數已損壞，需重新生成配對檔）")
+            }
+        }
+        
         return innerSeqStart..<octEnd
+    }
+    
+    /// 大數乘法驗算 p*q==n（字節均為大端序，可能含前導零）
+    private func bigMulEquals(_ pBytes: [UInt8], _ qBytes: [UInt8], _ nBytes: [UInt8]) -> Bool {
+        // 去前導零，轉小端序 UInt64 數組
+        func toWords(_ b: [UInt8]) -> [UInt64] {
+            var bytes = b
+            while bytes.count > 1 && bytes[0] == 0 { bytes.removeFirst() }
+            var words: [UInt64] = []
+            var i = bytes.count
+            while i > 0 {
+                let start = max(0, i - 8)
+                var w: UInt64 = 0
+                for j in start..<i { w = (w << 8) | UInt64(bytes[j]) }
+                words.append(w)
+                i = start
+            }
+            return words
+        }
+        let pw = toWords(pBytes), qw = toWords(qBytes)
+        var result = [UInt64](repeating: 0, count: pw.count + qw.count)
+        for i in 0..<pw.count {
+            var carry: UInt64 = 0
+            for j in 0..<qw.count {
+                let (hi, lo) = pw[i].multipliedFullWidth(by: qw[j])
+                let (s1, o1) = result[i+j].addingReportingOverflow(lo)
+                let (s2, o2) = s1.addingReportingOverflow(carry)
+                let (s3, o3) = s2.addingReportingOverflow(hi)
+                result[i+j] = s3
+                carry = (o1 ? 1 : 0) + (o2 ? 1 : 0) + (o3 ? 1 : 0)
+            }
+            var k = i + qw.count
+            while carry > 0 && k < result.count {
+                let (s, o) = result[k].addingReportingOverflow(carry)
+                result[k] = s
+                carry = o ? 1 : 0
+                k += 1
+            }
+        }
+        // 轉回大端序字節，去前導零後比較
+        var outBytes: [UInt8] = []
+        for w in result.reversed() {
+            for shift in stride(from: 56, through: 0, by: -8) {
+                outBytes.append(UInt8((w >> shift) & 0xFF))
+            }
+        }
+        while outBytes.count > 1 && outBytes[0] == 0 { outBytes.removeFirst() }
+        var nNorm = nBytes
+        while nNorm.count > 1 && nNorm[0] == 0 { nNorm.removeFirst() }
+        return outBytes == nNorm
     }
     
     /// 讀取 DER 長度編碼，返回 (長度, 佔用字節數)
