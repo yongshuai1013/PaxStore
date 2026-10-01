@@ -8,8 +8,9 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var isLoading = false
     @State private var needs2FA = false
+    @State private var loginTask: Task<Void, Never>?
     
-    // 2FA 代碼提供者（橋接 UI 和 auth）
+    // 2FA 代碼提供者
     private let codeProvider = TwoFACodeProvider()
     
     var body: some View {
@@ -24,7 +25,6 @@ struct ContentView: View {
                             password = ""
                             verificationCode = ""
                             needs2FA = false
-                            codeProvider.code = nil
                         }
                         .foregroundColor(.red)
                     }
@@ -33,11 +33,19 @@ struct ContentView: View {
                         TextField("Apple ID", text: $appleID)
                             .autocapitalization(.none)
                             .keyboardType(.emailAddress)
+                            .disabled(isLoading)
                         SecureField("密碼", text: $password)
+                            .disabled(isLoading)
                         
                         if needs2FA {
-                            TextField("2FA 驗證碼", text: $verificationCode)
+                            TextField("2FA 驗證碼（SMS 已發送）", text: $verificationCode)
                                 .keyboardType(.numberPad)
+                            
+                            Button("提交驗證碼") {
+                                codeProvider.submitCode(verificationCode)
+                                verificationCode = ""
+                            }
+                            .disabled(verificationCode.isEmpty)
                         }
                         
                         if let error = errorMessage {
@@ -50,10 +58,10 @@ struct ContentView: View {
                             if isLoading {
                                 ProgressView()
                             } else {
-                                Text(needs2FA ? "驗證並登入" : "登入")
+                                Text("登入")
                             }
                         }
-                        .disabled(isLoading || appleID.isEmpty || password.isEmpty || (needs2FA && verificationCode.isEmpty))
+                        .disabled(isLoading || appleID.isEmpty || password.isEmpty)
                     }
                     
                     Section(footer: Text("VPN 外置：請確保外部 VPN 已連接（10.7.0.1 可達）")) {
@@ -62,19 +70,24 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("PaxStore")
+            .onAppear {
+                // 設置驗證碼回調：handler 需要碼時顯示輸入框
+                codeProvider.onCodeRequired = {
+                    Task { @MainActor in
+                        needs2FA = true
+                        errorMessage = "Apple 已發送 SMS，請輸入驗證碼"
+                    }
+                }
+            }
         }
     }
     
     private func doLogin() {
         isLoading = true
         errorMessage = nil
+        needs2FA = false
         
-        // 把 UI 輸入的碼給 provider
-        if needs2FA {
-            codeProvider.code = verificationCode
-        }
-        
-        Task {
+        loginTask = Task {
             do {
                 let success = try await PaxAuthService.shared.login(
                     appleID: appleID,
@@ -91,16 +104,8 @@ struct ContentView: View {
             } catch {
                 await MainActor.run {
                     isLoading = false
-                    // 檢測是否需要 2FA
-                    if let authError = error as? PaxAuthError, authError == .twoFactorRequired {
-                        needs2FA = true
-                        errorMessage = "Apple 已發送 SMS 驗證碼，請輸入"
-                    } else if error.localizedDescription.contains("two-factor") {
-                        needs2FA = true
-                        errorMessage = "請輸入 Apple 發送的 2FA 驗證碼"
-                    } else {
-                        errorMessage = "登入失敗：\(error.localizedDescription)"
-                    }
+                    // 取消等待中的 handler（如果用戶取消）
+                    errorMessage = "登入失敗：\(error.localizedDescription)"
                 }
             }
         }
