@@ -13,6 +13,10 @@ struct SigningFlowView: View {
     @State private var signedIPAURL: URL?
     @State private var errorMessage: String?
     @State private var showingShare = false
+    @State private var deviceUDID = ""
+    @State private var deviceName = "iPhone"
+    @State private var showDeviceRegistration = false
+    @State private var isPickingPairing = false
     
     private let signingService = PaxSigningService.shared
     
