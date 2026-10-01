@@ -96,13 +96,34 @@ public final class PaxAuthService {
             case .trustedDevice, .sms, .voice:
                 // 等待 UI 輸入（不會拋錯重來）
                 let code = await codeProvider.awaitCode()
-                return .verificationCode(code)
-            case .selectDeliveryMethod(_, let phoneNumbers):
-                // 優先 SMS
-                if let firstPhone = phoneNumbers.first {
-                    return .requestSMS(phoneID: firstPhone.id)
+                // 去掉可能的空格
+                let cleanCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                print("[PaxStore] 提交 2FA 碼: \(cleanCode.count) 位")
+                return .verificationCode(cleanCode)
+            case .selectDeliveryMethod(let preferredMode, let phoneNumbers):
+                print("[PaxStore] Apple 建議的 2FA 方式: \(preferredMode), 可用電話: \(phoneNumbers.count)")
+                // 尊重 Apple 的建議順序，但優先 SMS（用戶明確要測 SMS）
+                // 如果 Apple 建議 trustedDevice 且有可用設備，先試 trustedDevice
+                switch preferredMode {
+                case .sms, .voice:
+                    if let firstPhone = phoneNumbers.first {
+                        let mode = preferredMode == .voice ? "voice" : "sms"
+                        print("[PaxStore] 請求 \(mode): \(firstPhone.number)")
+                        if mode == "voice" {
+                            return .requestVoice(phoneID: firstPhone.id)
+                        } else {
+                            return .requestSMS(phoneID: firstPhone.id)
+                        }
+                    }
+                    return .requestTrustedDevice
+                case .trustedDevice:
+                    // 用戶反饋設備碼不彈，直接用 SMS
+                    if let firstPhone = phoneNumbers.first {
+                        print("[PaxStore] 設備碼不彈，改用 SMS: \(firstPhone.number)")
+                        return .requestSMS(phoneID: firstPhone.id)
+                    }
+                    return .requestTrustedDevice
                 }
-                return .requestTrustedDevice
             }
         }
         
@@ -116,6 +137,15 @@ public final class PaxAuthService {
         
         print("[PaxStore] 登入成功")
         return true
+    }
+    
+    // MARK: - Reset
+    
+    /// 清除本地 Anisette 數據（對應 SideStore 的 Reset adi.pb）
+    public func resetAnisette() {
+        UserDefaults.standard.removeObject(forKey: "paxstore.anisette.identifier")
+        UserDefaults.standard.removeObject(forKey: "paxstore.anisette.adiblob")
+        print("[PaxStore] Anisette 數據已清除")
     }
     
     // MARK: - Keychain（簡化版，用 UserDefaults 代替）
