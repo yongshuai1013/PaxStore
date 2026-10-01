@@ -26,12 +26,16 @@ public class LockdownClient {
     /// 從配對檔建立 SecIdentity（經 Keychain）
     private func makeIdentity(hostCertPEM: String, hostKeyPEM: String) throws -> SecIdentity {
         guard let certDER = derFromPEM(hostCertPEM) else { throw LockdownError.missingCredentials }
-        guard var keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
+        guard let keyDER = derFromPEM(hostKeyPEM) else { throw LockdownError.missingCredentials }
         
-        // 私鑰可能是 PKCS#1，需包成 PKCS#8 才能 SecKeyCreateWithData
-        // 簡化：嘗試直接導入，失敗則嘗試包 PKCS#8
-        let keyLabel = "PaxStorePairingKey-\(UUID().uuidString)"
-        let certLabel = "PaxStorePairingCert-\(UUID().uuidString)"
+        // 按 PEM 頭判斷：RSA PRIVATE KEY = PKCS#1（需包成 PKCS#8），PRIVATE KEY = PKCS#8（直接用）
+        var keyData = keyDER
+        if hostKeyPEM.contains("RSA PRIVATE KEY") {
+            guard let wrapped = wrapPKCS1inPKCS8(keyDER) else {
+                throw LockdownError.tlsSetupFailed("PKCS#1 包裝失敗")
+            }
+            keyData = wrapped
+        }
         
         // 先清掉舊的（避免重複）
         let delKey: [String: Any] = [kSecClass as String: kSecClassKey,
@@ -41,20 +45,15 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰
-        var keyData = keyDER
-        // 檢查是否為 PKCS#1 (以 0x30 0x82 開頭且內層也是 SEQUENCE)，若是則包 PKCS#8 頭
-        if !isPKCS8(keyData) {
-            if let wrapped = wrapPKCS1inPKCS8(keyData) { keyData = wrapped }
-        }
+        // 導入私鑰（不指定 keySize，讓系統自動識別）
         let keyAttrs: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
             kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
-            kSecAttrKeySizeInBits as String: 2048,
         ]
         var err: Unmanaged<CFError>?
         guard let secKey = SecKeyCreateWithData(keyData as CFData, keyAttrs as CFDictionary, &err) else {
-            throw LockdownError.tlsSetupFailed("私鑰導入失敗: \(err?.takeRetainedValue() as Error? as? NSError as? String ?? "unknown")")
+            let msg = err?.takeRetainedValue().localizedDescription ?? "未知錯誤"
+            throw LockdownError.tlsSetupFailed("私鑰導入失敗: \(msg) (DER \(keyData.count) 字節)")
         }
         let addKey: [String: Any] = [
             kSecClass as String: kSecClassKey,
@@ -101,17 +100,6 @@ public class LockdownClient {
             throw LockdownError.tlsSetupFailed("Identity 組裝失敗: \(status)")
         }
         return identity
-    }
-    
-    private func isPKCS8(_ data: Data) -> Bool {
-        // PKCS#8: SEQUENCE { INTEGER 0, SEQUENCE { OID rsaEncryption ... }, OCTET STRING }
-        // 簡單判斷：找 rsaEncryption OID (1.2.840.113549.1.1.1)
-        let oid: [UInt8] = [0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01]
-        let bytes = [UInt8](data.prefix(64))
-        for i in 0..<(bytes.count - oid.count) {
-            if Array(bytes[i..<(i+oid.count)]) == oid { return true }
-        }
-        return false
     }
     
     private func wrapPKCS1inPKCS8(_ pkcs1: Data) -> Data? {
