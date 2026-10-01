@@ -9,6 +9,9 @@ struct ContentView: View {
     @State private var isLoading = false
     @State private var needs2FA = false
     
+    // 2FA 代碼提供者（橋接 UI 和 auth）
+    private let codeProvider = TwoFACodeProvider()
+    
     var body: some View {
         NavigationView {
             Form {
@@ -21,6 +24,7 @@ struct ContentView: View {
                             password = ""
                             verificationCode = ""
                             needs2FA = false
+                            codeProvider.code = nil
                         }
                         .foregroundColor(.red)
                     }
@@ -65,12 +69,17 @@ struct ContentView: View {
         isLoading = true
         errorMessage = nil
         
+        // 把 UI 輸入的碼給 provider
+        if needs2FA {
+            codeProvider.code = verificationCode
+        }
+        
         Task {
             do {
                 let success = try await PaxAuthService.shared.login(
                     appleID: appleID,
                     password: password,
-                    verificationCode: needs2FA ? verificationCode : nil
+                    codeProvider: codeProvider
                 )
                 await MainActor.run {
                     isLoading = false
@@ -82,13 +91,15 @@ struct ContentView: View {
             } catch {
                 await MainActor.run {
                     isLoading = false
-                    let msg = error.localizedDescription
                     // 檢測是否需要 2FA
-                    if msg.contains("two-factor") || msg.contains("2FA") {
+                    if let authError = error as? PaxAuthError, authError == .twoFactorRequired {
+                        needs2FA = true
+                        errorMessage = "Apple 已發送 SMS 驗證碼，請輸入"
+                    } else if error.localizedDescription.contains("two-factor") {
                         needs2FA = true
                         errorMessage = "請輸入 Apple 發送的 2FA 驗證碼"
                     } else {
-                        errorMessage = "登入失敗：\(msg)"
+                        errorMessage = "登入失敗：\(error.localizedDescription)"
                     }
                 }
             }
