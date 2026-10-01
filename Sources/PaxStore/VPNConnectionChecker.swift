@@ -12,7 +12,7 @@ public class VPNConnectionChecker {
     private init() {}
     
     /// 檢測 VPN 是否連通（TCP 連接到 lockdownd 端口）
-    public func checkConnection(timeout: TimeInterval = 5) async -> Bool {
+    public func checkConnection(timeout: TimeInterval = 10) async -> Bool {
         return await withCheckedContinuation { continuation in
             let connection = NWConnection(
                 host: NWEndpoint.Host(gatewayHost),
@@ -20,8 +20,11 @@ public class VPNConnectionChecker {
                 using: .tcp
             )
             
+            let lock = NSLock()
             var resumed = false
             func resume(_ result: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
                 guard !resumed else { return }
                 resumed = true
                 connection.cancel()
@@ -31,9 +34,16 @@ public class VPNConnectionChecker {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
+                    print("[VPN] Connected to \(self.gatewayHost):\(self.gatewayPort)")
                     resume(true)
-                case .failed, .cancelled:
+                case .failed(let error):
+                    print("[VPN] Failed: \(error)")
                     resume(false)
+                case .cancelled:
+                    print("[VPN] Cancelled")
+                    resume(false)
+                case .waiting(let error):
+                    print("[VPN] Waiting: \(error)")
                 default:
                     break
                 }
@@ -43,6 +53,7 @@ public class VPNConnectionChecker {
             
             // 超時
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                print("[VPN] Timeout after \(timeout)s")
                 resume(false)
             }
         }
