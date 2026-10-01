@@ -73,9 +73,9 @@ public class LockdownClient {
             kSecAttrApplicationTag as String: tagData,
             kSecReturnRef as String: true,
         ]
-        var item: CFTypeRef?
-        status = SecItemCopyMatching(getKey as CFDictionary, &item)
-        guard status == errSecSuccess, let secKey = item as! SecKey? else {
+        var keyItem: CFTypeRef?
+        status = SecItemCopyMatching(getKey as CFDictionary, &keyItem)
+        guard status == errSecSuccess, let secKey = keyItem as! SecKey? else {
             throw LockdownError.tlsSetupFailed("私鑰取回失敗: \(status)\n" + diag.joined(separator: "\n"))
         }
         diag.append("私鑰導入成功")
