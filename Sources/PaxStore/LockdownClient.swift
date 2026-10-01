@@ -1,10 +1,6 @@
 import Foundation
 import Security
 
-// SecureTransport 常量（Swift 未導出，用原始值）
-private let Self.errWouldBlock_Swift: OSStatus = -3101
-private let Self.errServerAuthCompleted_Swift: OSStatus = -9841
-
 /// Lockdown 協議客戶端（經 VPN 隧道連接設備）
 /// 連接流程：明文 TCP → QueryType/ValidatePair/StartSession → TLS 升級（同一 socket）
 public class LockdownClient {
