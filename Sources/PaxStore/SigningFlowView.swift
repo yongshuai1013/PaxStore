@@ -131,6 +131,7 @@ struct SigningFlowView: View {
         do {
             teams = try await signingService.fetchTeams()
             selectedTeam = teams.first
+            await checkDevices()
         } catch {
             errorMessage = "載入 Team 失敗: \(error.localizedDescription)"
         }
