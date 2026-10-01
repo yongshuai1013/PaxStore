@@ -16,9 +16,6 @@ packages:
   CodeSignKit:
     url: https://github.com/mahee96/CodeSignKit.git
     branch: main
-  WireGuardKit:
-    url: https://github.com/WireGuard/wireguard-apple.git
-    from: 1.0.0
 
 targets:
   PaxStore:
@@ -36,16 +33,3 @@ targets:
       PRODUCT_NAME: PaxStore
     info:
       path: Resources/Info.plist
-  PaxStoreVPN:
-    type: app-extension.network-extension.packet-tunnel
-    platform: iOS
-    deploymentTarget: "15.0"
-    sources:
-      - Sources/PaxStoreVPN
-    dependencies:
-      - package: WireGuardKit
-    settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app.vpn
-      PRODUCT_NAME: PaxStoreVPN
-    info:
-      path: Resources/VPNInfo.plist
