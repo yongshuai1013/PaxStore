@@ -63,11 +63,16 @@ public final class TwoFACodeProvider: Sendable {
 public final class PaxAuthService {
     public static let shared = PaxAuthService()
     
-    private let anisetteServers: [URL] = [
-        URL(string: "https://ani.sidestore.zip")!,
-    ]
-    
     private init() {}
+    
+    /// 當前選中的 anisette 伺服器
+    private var anisetteServers: [URL] {
+        let server = AnisetteServerManager.shared.selectedServer
+        guard let url = server.nsURL else {
+            return [URL(string: "https://ani.sidestore.zip")!]
+        }
+        return [url]
+    }
     
     /// 登入（一次 authenticate 內完成 2FA，不會重發 SMS）
     public func login(appleID: String, password: String, codeProvider: TwoFACodeProvider = TwoFACodeProvider()) async throws -> Bool {
