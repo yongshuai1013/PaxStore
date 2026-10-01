@@ -36,6 +36,9 @@ struct ContentView: View {
                         NavigationLink(destination: SigningView()) {
                             Text("簽名管理")
                         }
+                        NavigationLink(destination: AppIDsView()) {
+                            Text("App ID 管理")
+                        }
                         Button("登出") {
                             PaxAuthService.shared.logout()
                             isLoggedIn = false
