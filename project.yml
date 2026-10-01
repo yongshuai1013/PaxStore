@@ -10,6 +10,9 @@ packages:
   SideSign:
     url: https://github.com/yongshuai1013/SideSign.git
     branch: main
+  CodeSignKit:
+    url: https://github.com/mahee96/CodeSignKit.git
+    branch: main
 
 targets:
   PaxStore:
@@ -20,6 +23,7 @@ targets:
       - Sources/PaxStore
     dependencies:
       - package: SideSign
+      - package: CodeSignKit
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
