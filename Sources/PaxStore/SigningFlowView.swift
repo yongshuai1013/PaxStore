@@ -54,6 +54,9 @@ struct SigningFlowView: View {
                     Text("團隊沒有註冊的設備，創建 profile 需要至少一個")
                         .font(.caption)
                         .foregroundColor(.orange)
+                    Button("從配對檔導入 UDID") {
+                        isPickingPairing = true
+                    }
                     TextField("設備 UDID", text: $deviceUDID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -102,6 +105,22 @@ struct SigningFlowView: View {
         .navigationTitle("簽名 IPA")
         .onChange(of: selectedTeam) { _ in
             Task { await checkDevices() }
+        }
+        .sheet(isPresented: $isPickingPairing) {
+            DocumentPicker { url in
+                // 從檔名提取 UDID（格式：{UDID}.plist）
+                let filename = url.deletingPathExtension().lastPathComponent
+                // UDID 通常是 40 位 hex（iOS 8+）或 24 位
+                if filename.count >= 24 {
+                    deviceUDID = filename
+                    log("已從配對檔提取 UDID")
+                } else {
+                    errorMessage = "無法從檔名提取 UDID"
+                }
+                isPickingPairing = false
+            } onCancel: {
+                isPickingPairing = false
+            }
         }
         .sheet(isPresented: $isPickingIPA) {
             DocumentPicker { url in
