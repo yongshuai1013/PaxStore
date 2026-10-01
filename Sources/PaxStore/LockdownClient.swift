@@ -1,10 +1,12 @@
 import Foundation
-import Network
 import Security
 
 /// Lockdown 協議客戶端（經 VPN 隧道連接設備）
+/// 連接流程：明文 TCP → QueryType/ValidatePair/StartSession → TLS 升級（同一 socket）
 public class LockdownClient {
-    private var connection: NWConnection?
+    private var socketFD: Int32 = -1
+    private var sslContext: SSLContext?
+    private var useSSL = false
     public let host: String
     public let port: UInt16
     private var sessionID: String?
