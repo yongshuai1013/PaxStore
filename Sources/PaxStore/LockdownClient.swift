@@ -246,22 +246,31 @@ public class LockdownClient {
             return words
         }
         let pw = toWords(pBytes), qw = toWords(qBytes)
-        var result = [UInt64](repeating: 0, count: pw.count + qw.count)
+        // result 用兩個 UInt64 存 128 位進位，避免溢出
+        var result = [UInt64](repeating: 0, count: pw.count + qw.count + 1)
         for i in 0..<pw.count {
-            var carry: UInt64 = 0
+            var carry: UInt64 = 0  // 進位 < 2^64+4，單字夠
             for j in 0..<qw.count {
-                let (hi, lo) = pw[i].multipliedFullWidth(by: qw[j])
-                let (s1, o1) = result[i+j].addingReportingOverflow(lo)
+                // total = result[i+j] + pw[i]*qw[j] + carry  (128位中間值)
+                let (phi, plo) = pw[i].multipliedFullWidth(by: qw[j])
+                // 先加 plo
+                let (s1, o1) = result[i+j].addingReportingOverflow(plo)
+                // 再加 carry（carry < 2^64+4，最多溢出一次）
                 let (s2, o2) = s1.addingReportingOverflow(carry)
-                let (s3, o3) = s2.addingReportingOverflow(hi)
-                result[i+j] = s3
-                carry = (o1 ? 1 : 0) + (o2 ? 1 : 0) + (o3 ? 1 : 0)
+                result[i+j] = s2
+                // 新 carry = phi + o1 + o2 (+ s2的高位溢出已由o2捕獲)
+                // phi < 2^64, o1+o2 <= 2，故 carry < 2^64+2
+                let (c1, oc1) = phi.addingReportingOverflow(o1 ? 1 : 0)
+                let (c2, _) = c1.addingReportingOverflow(o2 ? 1 : 0)
+                carry = c2
+                _ = oc1 // phi+2 不可能溢出 64 位
             }
             var k = i + qw.count
-            while carry > 0 && k < result.count {
-                let (s, o) = result[k].addingReportingOverflow(carry)
+            var c = carry
+            while c > 0 && k < result.count {
+                let (s, o) = result[k].addingReportingOverflow(c)
                 result[k] = s
-                carry = o ? 1 : 0
+                c = o ? 1 : 0
                 k += 1
             }
         }
