@@ -55,17 +55,19 @@ struct SigningView: View {
                     Text(isLoading ? "載入中..." : "無")
                 } else {
                     ForEach(certificates, id: \.serialNumberHex) { cert in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(cert.machineName ?? "Unknown")
-                                Text(cert.serialNumberHex)
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
+                        let hasKey = (cert.serialNumberHex == activeCertSerial)
+                        NavigationLink(destination: CertificateDetailView(cert: cert, hasPrivateKey: hasKey)) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(cert.machineName ?? "Unknown")
+                                    Text(cert.serialNumberHex)
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                }
+                                Spacer()
+                                Image(systemName: hasKey ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(hasKey ? .green : .red)
                             }
-                            Spacer()
-                            let hasKey = (cert.serialNumberHex == activeCertSerial)
-                            Image(systemName: hasKey ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(hasKey ? .green : .red)
                         }
                         .contextMenu {
                             Button("撤銷證書", role: .destructive) {
