@@ -47,10 +47,11 @@ public class LockdownClient {
             kSecAttrLabel as String: "PaxStorePairing"]
         SecItemDelete(delCert as CFDictionary)
         
-        // 導入私鑰
+        // 導入私鑰（明確指定 2048 位）
         let keyAttrs: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeRSA,
             kSecAttrKeyClass as String: kSecAttrKeyClassPrivate,
+            kSecAttrKeySizeInBits as String: 2048,
         ]
         var err: Unmanaged<CFError>?
         guard let secKey = SecKeyCreateWithData(keyDER as CFData, keyAttrs as CFDictionary, &err) else {
@@ -212,7 +213,7 @@ public class LockdownClient {
         }
         diag.append("PKCS#1 9個INTEGER齊全，n約\(nBits)位 ✓")
         
-        return pos..<octEnd
+        return (pos - innerLen)..<octEnd
     }
     
     /// 讀取 DER 長度編碼，返回 (長度, 佔用字節數)
