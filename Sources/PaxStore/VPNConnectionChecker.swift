@@ -163,6 +163,8 @@ public class VPNConnectionChecker {
         // 候選 3：Wi-Fi 直連（lockdownd 在 Wi-Fi 下監聽 62078，不一定需要經過 VPN）
         let wifiIP = discoverWiFiIP()
         if let wifiIP = wifiIP { add(wifiIP) }
+        // 候選 3b：localhost（若 lockdownd 綁 0.0.0.0，127.0.0.1 直達；沙盒對 localhost 無回環限制）
+        add("127.0.0.1")
         // 候選 4：手動輸入的地址
         add(gatewayHost)
 
