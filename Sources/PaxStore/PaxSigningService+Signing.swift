@@ -69,9 +69,10 @@ extension PaxSigningService {
             throw SigningError.certificateFailed("沒有可用證書")
         }
         
-        let deviceIDs = try await portal.fetchDevices(for: team, session: session).compactMap { $0.identifier }
-        guard !deviceIDs.isEmpty else {
-            throw SigningError.profileFailed("團隊沒有註冊的設備")
+        var deviceIDs = try await portal.fetchDevices(for: team, session: session).compactMap { $0.identifier }
+        if deviceIDs.isEmpty {
+            // 沒有設備，拋出明確錯誤（需要用戶提供 UDID 註冊）
+            throw SigningError.profileFailed("團隊沒有註冊的設備，請先在下方輸入設備 UDID 註冊")
         }
         
         let newProfile = try await portal.createProvisioningProfile(
@@ -84,5 +85,19 @@ extension PaxSigningService {
         )
         guard let newProfileID = newProfile.identifier else { throw SigningError.profileFailed("新 Profile 缺少 ID") }
         return try await portal.downloadProvisioningProfile(profileID: newProfileID, team: team, session: session)
+    }
+    
+    /// 註冊設備
+    public func registerDevice(udid: String, name: String, for team: SideSign.Team) async throws -> SideSign.Device {
+        let (_, session) = try await sessionWithFreshAnisette()
+        let portal = SideSign.DeveloperPortal.shared
+        return try await portal.registerDevice(name: name, identifier: udid, type: .iPhone, team: team, session: session)
+    }
+    
+    /// 獲取已註冊設備
+    public func fetchDevices(for team: SideSign.Team) async throws -> [SideSign.Device] {
+        let (_, session) = try await sessionWithFreshAnisette()
+        let portal = SideSign.DeveloperPortal.shared
+        return try await portal.fetchDevices(for: team, session: session)
     }
 }
