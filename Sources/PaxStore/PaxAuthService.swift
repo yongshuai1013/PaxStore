@@ -135,6 +135,25 @@ public final class PaxAuthService {
     
     private init() {}
     
+    // MARK: - Keychain Keys
+    
+    private enum KeychainKey {
+        static let session = "paxstore.auth.session"
+        static let appleID = "paxstore.auth.appleID"
+        static let anisetteIdentifier = "paxstore.anisette.identifier"
+        static let adiBlob = "paxstore.anisette.adiblob"
+    }
+    
+    /// 當前已登入的 Apple ID（從 Keychain 讀）
+    public var currentAppleID: String? {
+        KeychainHelper.loadString(forKey: KeychainKey.appleID)
+    }
+    
+    /// 是否有已保存的登入 session
+    public var hasSavedSession: Bool {
+        KeychainHelper.load(forKey: KeychainKey.session) != nil
+    }
+    
     /// 登入時用的 anisette 伺服器列表（自動輪換開→按優先順序 failover）
     private var anisetteServers: [URL] {
         let urls = AnisetteServerManager.shared.serversForLogin()
@@ -210,37 +229,77 @@ public final class PaxAuthService {
             verificationHandler: verificationHandler
         )
         
+        // 保存 session 到 Keychain
+        let saved = KeychainHelper.saveCodable(session, forKey: KeychainKey.session)
+        KeychainHelper.saveString(appleID, forKey: KeychainKey.appleID)
+        codeProvider.log("Session 已保存到 Keychain: \(saved)")
+        
         print("[PaxStore] 登入成功")
         return true
+    }
+    
+    // MARK: - Session 恢復與登出
+    
+    /// 從 Keychain 恢復 session（App 啟動時調用）
+    public func restoreSession() -> Bool {
+        guard let _: SideSign.AuthSession = KeychainHelper.loadCodable(SideSign.AuthSession.self, forKey: KeychainKey.session),
+              let appleID = currentAppleID else {
+            return false
+        }
+        print("[PaxStore] 從 Keychain 恢復 session: \(appleID)")
+        return true
+    }
+    
+    /// 登出：清除 Keychain 中的 session（保留 anisette 數據）
+    public func logout() {
+        KeychainHelper.delete(forKey: KeychainKey.session)
+        KeychainHelper.delete(forKey: KeychainKey.appleID)
+        print("[PaxStore] 已登出，session 已清除")
     }
     
     // MARK: - Reset
     
     /// 清除本地 Anisette 數據（對應 SideStore 的 Reset adi.pb）
     public func resetAnisette() {
+        KeychainHelper.delete(forKey: KeychainKey.anisetteIdentifier)
+        KeychainHelper.delete(forKey: KeychainKey.adiBlob)
         UserDefaults.standard.removeObject(forKey: "paxstore.anisette.identifier")
         UserDefaults.standard.removeObject(forKey: "paxstore.anisette.adiblob")
         print("[PaxStore] Anisette 數據已清除")
     }
     
-    // MARK: - Keychain（簡化版，用 UserDefaults 代替）
+    // MARK: - Anisette 身份（Keychain 持久化）
     
     private func resolveIdentifier() -> UUID {
-        let key = "paxstore.anisette.identifier"
-        if let uuidString = UserDefaults.standard.string(forKey: key),
+        let key = KeychainKey.anisetteIdentifier
+        if let uuidString = KeychainHelper.loadString(forKey: key),
            let uuid = UUID(uuidString: uuidString) {
             return uuid
         }
+        if let uuidString = UserDefaults.standard.string(forKey: "paxstore.anisette.identifier"),
+           let uuid = UUID(uuidString: uuidString) {
+            KeychainHelper.saveString(uuid.uuidString, forKey: key)
+            UserDefaults.standard.removeObject(forKey: "paxstore.anisette.identifier")
+            return uuid
+        }
         let newUUID = UUID()
-        UserDefaults.standard.set(newUUID.uuidString, forKey: key)
+        KeychainHelper.saveString(newUUID.uuidString, forKey: key)
         return newUUID
     }
     
     private func loadADIBlob() -> Data? {
-        return UserDefaults.standard.data(forKey: "paxstore.anisette.adiblob")
+        if let data = KeychainHelper.load(forKey: KeychainKey.adiBlob) {
+            return data
+        }
+        if let data = UserDefaults.standard.data(forKey: "paxstore.anisette.adiblob") {
+            KeychainHelper.save(data, forKey: KeychainKey.adiBlob)
+            UserDefaults.standard.removeObject(forKey: "paxstore.anisette.adiblob")
+            return data
+        }
+        return nil
     }
     
     private func saveADIBlob(_ data: Data) {
-        UserDefaults.standard.set(data, forKey: "paxstore.anisette.adiblob")
+        KeychainHelper.save(data, forKey: KeychainKey.adiBlob)
     }
 }
