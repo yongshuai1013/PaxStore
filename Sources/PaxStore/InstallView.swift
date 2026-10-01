@@ -6,6 +6,7 @@ struct InstallView: View {
     @State private var isCheckingVPN = false
     @State private var vpnHost = "10.7.0.1"
     @State private var vpnPort = "62078"
+    @State private var vpnDiagnostic = ""
     @State private var ipaURL: URL?
     @State private var isPickingIPA = false
     @State private var isInstalling = false
@@ -49,6 +50,11 @@ struct InstallView: View {
                 }
                 Button("檢測連線") {
                     Task { await checkVPN() }
+                }
+                if !vpnDiagnostic.isEmpty {
+                    Text(vpnDiagnostic)
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
             }
             
@@ -125,9 +131,11 @@ struct InstallView: View {
     
     private func checkVPN() async {
         isCheckingVPN = true
+        vpnDiagnostic = ""
         VPNConnectionChecker.shared.gatewayHost = vpnHost
         VPNConnectionChecker.shared.gatewayPort = UInt16(vpnPort) ?? 62078
         vpnConnected = await VPNConnectionChecker.shared.checkConnection()
+        vpnDiagnostic = VPNConnectionChecker.shared.lastDiagnostic
         isCheckingVPN = false
     }
     
