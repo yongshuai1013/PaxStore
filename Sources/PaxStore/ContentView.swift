@@ -16,8 +16,16 @@ struct ContentView: View {
     @State private var availablePhones: [TrustedPhoneNumber] = []
     @State private var preferredMethod: TwoFactorDeliveryMode = .sms
     
+    // 調試日誌
+    @State private var debugLog = ""
+    
     // 2FA 代碼提供者
     private let codeProvider = TwoFACodeProvider()
+    
+    private func log(_ message: String) {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        debugLog += "[\(timestamp)] \(message)\n"
+    }
     
     var body: some View {
         NavigationView {
@@ -82,9 +90,26 @@ struct ContentView: View {
                         }
                         Button("Reset Anisette（清除本地數據）") {
                             PaxAuthService.shared.resetAnisette()
+                            log("已清除 Anisette 本地數據")
                             errorMessage = "Anisette 數據已清除，下次登入會重新生成"
                         }
                         .foregroundColor(.red)
+                    }
+                    
+                    // 調試日誌
+                    if !debugLog.isEmpty {
+                        Section(header: Text("調試日誌")) {
+                            ScrollView {
+                                Text(debugLog)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 200)
+                            Button("清除日誌") {
+                                debugLog = ""
+                            }
+                            .font(.caption)
+                        }
                     }
                 }
             }
@@ -103,6 +128,12 @@ struct ContentView: View {
                         availablePhones = phones
                         preferredMethod = preferred
                         showMethodPicker = true
+                    }
+                }
+                // 設置日誌回調
+                codeProvider.onLog = { message in
+                    Task { @MainActor in
+                        log(message)
                     }
                 }
             }
@@ -153,6 +184,7 @@ struct ContentView: View {
         
         loginTask = Task {
             do {
+                await MainActor.run { log("開始登入") }
                 let success = try await PaxAuthService.shared.login(
                     appleID: appleID,
                     password: password,
@@ -169,6 +201,7 @@ struct ContentView: View {
                 await MainActor.run {
                     isLoading = false
                     // 取消等待中的 handler（如果用戶取消）
+                    log("登入失敗: \(error.localizedDescription)")
                     errorMessage = "登入失敗：\(error.localizedDescription)"
                 }
             }
