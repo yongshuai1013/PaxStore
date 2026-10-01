@@ -17,6 +17,7 @@ struct SigningFlowView: View {
     @State private var deviceName = "iPhone"
     @State private var showDeviceRegistration = false
     @State private var isPickingPairing = false
+    @State private var deviceCount = 0
     
     private let signingService = PaxSigningService.shared
     
@@ -53,23 +54,27 @@ struct SigningFlowView: View {
                 }
             }
             
-            if showDeviceRegistration {
-                Section(header: Text("註冊設備")) {
+            Section(header: Text("設備")) {
+                if deviceCount > 0 {
+                    Text("已註冊 \(deviceCount) 個設備")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                } else {
                     Text("團隊沒有註冊的設備，創建 profile 需要至少一個")
                         .font(.caption)
                         .foregroundColor(.orange)
-                    Button("從配對檔導入 UDID") {
-                        isPickingPairing = true
-                    }
-                    TextField("設備 UDID", text: $deviceUDID)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("設備名稱", text: $deviceName)
-                    Button("註冊設備") {
-                        Task { await registerDevice() }
-                    }
-                    .disabled(deviceUDID.isEmpty || selectedTeam == nil)
                 }
+                Button("從配對檔導入 UDID") {
+                    isPickingPairing = true
+                }
+                TextField("設備 UDID", text: $deviceUDID)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("設備名稱", text: $deviceName)
+                Button("註冊設備") {
+                    Task { await registerDevice() }
+                }
+                .disabled(deviceUDID.isEmpty || selectedTeam == nil)
             }
             
             Section(header: Text("3. 簽名")) {
@@ -260,7 +265,7 @@ struct SigningFlowView: View {
         guard let team = selectedTeam else { return }
         do {
             let devices = try await signingService.fetchDevices(for: team)
-            showDeviceRegistration = devices.isEmpty
+            deviceCount = devices.count
             if devices.isEmpty {
                 log("團隊沒有註冊的設備，需要先註冊")
             } else {
