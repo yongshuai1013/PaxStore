@@ -7,6 +7,9 @@ options:
   groupSortPosition: top
 
 packages:
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    from: 0.9.19
   SideSign:
     url: https://github.com/yongshuai1013/SideSign.git
     revision: 4596d5e270aeddd0a0b1ba7da01930fc0239da79
@@ -24,6 +27,7 @@ targets:
     dependencies:
       - package: SideSign
       - package: CodeSignKit
+      - package: ZIPFoundation
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
