@@ -34,11 +34,13 @@ struct ContentView: View {
                     Section(header: Text("已登入")) {
                         Text(appleID)
                         Button("登出") {
+                            PaxAuthService.shared.logout()
                             isLoggedIn = false
                             appleID = ""
                             password = ""
                             verificationCode = ""
                             needs2FA = false
+                            log("已登出")
                         }
                         .foregroundColor(.red)
                     }
@@ -115,6 +117,14 @@ struct ContentView: View {
             }
             .navigationTitle("PaxStore")
             .onAppear {
+                // 啟動時嘗試從 Keychain 恢復 session
+                if PaxAuthService.shared.restoreSession() {
+                    if let savedID = PaxAuthService.shared.currentAppleID {
+                        appleID = savedID
+                    }
+                    isLoggedIn = true
+                    log("已從 Keychain 恢復登入狀態")
+                }
                 // 設置驗證碼回調：handler 需要碼時顯示輸入框
                 codeProvider.onCodeRequired = {
                     Task { @MainActor in
@@ -140,10 +150,9 @@ struct ContentView: View {
             .actionSheet(isPresented: $showMethodPicker) {
                 var buttons: [ActionSheet.Button] = []
                 
-                // 受信任設備
-                buttons.append(.default(Text("受信任設備\(preferredMethod == .trustedDevice ? "（推薦）" : "")")) {
-                    codeProvider.submitMethod(.trustedDevice)
-                })
+                // 注意：不提供「受信任設備」選項
+                // 原因：如果帳號在當前設備上沒有綁定受信任設備，Apple 會自動降級發 SMS，
+                // 但 SideSign 仍按設備碼通道驗證，導致 -22982。只留 SMS/語音最穩。
                 
                 // 每個電話號碼的 SMS 和語音
                 for phone in availablePhones {
