@@ -74,6 +74,11 @@ struct ContentView: View {
                                     .font(.caption)
                             }
                         }
+                        Button("Reset Anisette（清除本地數據）") {
+                            PaxAuthService.shared.resetAnisette()
+                            errorMessage = "Anisette 數據已清除，下次登入會重新生成"
+                        }
+                        .foregroundColor(.red)
                     }
                 }
             }
