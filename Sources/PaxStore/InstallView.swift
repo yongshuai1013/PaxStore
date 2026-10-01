@@ -140,6 +140,7 @@ struct InstallView: View {
         VPNConnectionChecker.shared.gatewayHost = vpnHost
         VPNConnectionChecker.shared.gatewayPort = UInt16(vpnPort) ?? 62078
         vpnConnected = await VPNConnectionChecker.shared.checkConnection()
+        vpnHost = VPNConnectionChecker.shared.gatewayHost
         vpnDiagnostic = VPNConnectionChecker.shared.lastDiagnostic
         isCheckingVPN = false
     }
