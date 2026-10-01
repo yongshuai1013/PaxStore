@@ -4,8 +4,6 @@ struct InstallView: View {
     var initialIPAURL: URL? = nil
     @State private var vpnConnected = false
     @State private var isCheckingVPN = false
-    @State private var vpnHost = "10.7.0.1"
-    @State private var vpnPort = "62078"
     @State private var vpnDiagnostic = ""
     @State private var ipaURL: URL?
     @State private var isPickingIPA = false
@@ -16,40 +14,31 @@ struct InstallView: View {
     
     var body: some View {
         List {
-            // VPN 狀態
-            Section(header: Text("VPN 連線")) {
+            // 內置 VPN 狀態
+            Section(header: Text("內置 VPN")) {
                 HStack {
-                    Text("外置 VPN")
+                    Text("PaxStore VPN")
                     Spacer()
-                    if isCheckingVPN {
-                        ProgressView()
-                    } else {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(vpnConnected ? Color.green : Color.red)
-                                .frame(width: 8, height: 8)
-                            Text(vpnConnected ? "已連接" : "未連接")
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background((vpnConnected ? Color.green : Color.red).opacity(0.15))
-                        .cornerRadius(12)
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(vpnConnected ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        Text(vpnConnected ? "已連接" : "未連接")
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background((vpnConnected ? Color.green : Color.red).opacity(0.15))
+                    .cornerRadius(12)
                 }
-                HStack {
-                    Text("主機")
-                    TextField("10.7.0.1", text: $vpnHost)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .autocapitalization(.none)
-                }
-                HStack {
-                    Text("端口")
-                    TextField("62078", text: $vpnPort)
-                        .textFieldStyle(RoundedBorderTextFieldStyle())
-                        .keyboardType(.numberPad)
-                }
-                Button("檢測連線") {
-                    Task { await checkVPN() }
+                if vpnConnected {
+                    Button("斷開 VPN") {
+                        Task { await disconnectVPN() }
+                    }
+                    .foregroundColor(.red)
+                } else {
+                    Button("連接 VPN") {
+                        Task { await connectVPN() }
+                    }
                 }
                 if !vpnDiagnostic.isEmpty {
                     Text(vpnDiagnostic)
@@ -129,14 +118,27 @@ struct InstallView: View {
         }
     }
     
+    private func connectVPN() async {
+        vpnDiagnostic = "正在連接..."
+        do {
+            try await VPNManager.shared.connect()
+            // 等待連接建立
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            vpnConnected = VPNManager.shared.isConnected
+            vpnDiagnostic = vpnConnected ? "VPN 已連接" : "連接中，請稍候..."
+        } catch {
+            vpnDiagnostic = "連接失敗: \(error.localizedDescription)"
+        }
+    }
+    
+    private func disconnectVPN() async {
+        VPNManager.shared.disconnect()
+        vpnConnected = false
+        vpnDiagnostic = "已斷開"
+    }
+    
     private func checkVPN() async {
-        isCheckingVPN = true
-        vpnDiagnostic = ""
-        VPNConnectionChecker.shared.gatewayHost = vpnHost
-        VPNConnectionChecker.shared.gatewayPort = UInt16(vpnPort) ?? 62078
-        vpnConnected = await VPNConnectionChecker.shared.checkConnection()
-        vpnDiagnostic = VPNConnectionChecker.shared.lastDiagnostic
-        isCheckingVPN = false
+        vpnConnected = VPNManager.shared.isConnected
     }
     
     private func startInstall() async {
