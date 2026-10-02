@@ -13,6 +13,8 @@ struct InstallView: View {
     @State private var progressMessage = ""
     @State private var progressPercent = 0
     @State private var errorMessage: String?
+    @State private var isDiagnosing = false
+    @State private var afcDiagnostic = ""
     
     var body: some View {
         List {
@@ -61,6 +63,28 @@ struct InstallView: View {
                 Text("先在 WireGuard / LocalDevVPN 中開啟隧道，再點檢測連線")
                     .font(.caption2)
                     .foregroundColor(.gray)
+            }
+            
+            // AFC 診斷
+            Section(header: Text("AFC 診斷")) {
+                Button(action: {
+                    Task { await diagnoseAFC() }
+                }) {
+                    if isDiagnosing {
+                        HStack {
+                            ProgressView()
+                            Text("診斷中...")
+                        }
+                    } else {
+                        Text("診斷 AFC 連線")
+                    }
+                }
+                .disabled(isDiagnosing || !vpnConnected)
+                if !afcDiagnostic.isEmpty {
+                    Text(afcDiagnostic)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
             }
             
             // 選擇 IPA
@@ -149,6 +173,16 @@ struct InstallView: View {
         vpnHost = VPNConnectionChecker.shared.gatewayHost
         vpnDiagnostic = VPNConnectionChecker.shared.lastDiagnostic
         isCheckingVPN = false
+    }
+    
+    private func diagnoseAFC() async {
+        isDiagnosing = true
+        afcDiagnostic = ""
+        let report = await AppInstaller.shared.diagnoseAFC()
+        DispatchQueue.main.async {
+            self.afcDiagnostic = report
+            self.isDiagnosing = false
+        }
     }
     
     private func startInstall() async {
