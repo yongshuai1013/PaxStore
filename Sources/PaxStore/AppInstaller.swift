@@ -19,22 +19,29 @@ public class AppInstaller {
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
         // 3. 上傳 IPA (經 Rust idevice-ffi 的 AFC；內部自建 lockdownd，不與 Swift 重疊)
-        progress("上傳 IPA... (Rust)", 20)
+        progress("上傳 IPA... (Swift/127.0.0.1)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
-        let stagedPath = "PublicStaging/\(remoteName)"  // AFC: 無前導斜線
-        let installPath = "/PublicStaging/\(remoteName)"  // installation_proxy: 絕對路徑
-        let rustAfc = RustAFCClient()
+        let stagedPath = "PublicStaging/\(remoteName)"
+        let installPath = "/PublicStaging/\(remoteName)"
+        // 先拿 AFC 端口（經 10.7.0.1 lockdownd），再斷開
+        let tmpLockdown = LockdownClient(host: host)
+        try await tmpLockdown.connect(pairingFileURL: pairingURL)
+        let (afcPort, _) = try await tmpLockdown.startService("com.apple.afc")
+        tmpLockdown.disconnect()
+        // AFC 走 127.0.0.1（VPN 只轉發 10.7.0.1:62078，動態端口不轉）
+        let afc = AFCClient(host: "127.0.0.1", port: afcPort)
         do {
-            try await rustAfc.connect(pairingFileURL: pairingURL, host: host)
-            try await rustAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+            try await afc.connect(pairingFileURL: pairingURL)
+            try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
                 let pct = total > 0 ? Int(sent * 60 / total) : 0
                 progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
-            rustAfc.disconnect()
-            progress("上傳完成（Rust）", 80)
+            try await afc.disconnect()
+            progress("上傳完成", 80)
         } catch {
-            rustAfc.disconnect()
-            throw InstallerError.afcFailed("Rust AFC: \(error)")
+            try? await afc.disconnect()
+            throw InstallerError.afcFailed("Swift AFC: \(error)")
+        }
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
