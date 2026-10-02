@@ -111,6 +111,11 @@ struct SigningFlowView: View {
                     NavigationLink(destination: InstallView(initialIPAURL: signedURL)) {
                         Text("直接安裝此 IPA")
                     }
+                    .contextMenu {
+                        NavigationLink(destination: InstallView(initialIPAURL: signedURL, plistMode: true)) {
+                            Label("用 plist 安裝 (免 VPN)", systemImage: "list.bullet")
+                        }
+                    }
                 }
             }
         }

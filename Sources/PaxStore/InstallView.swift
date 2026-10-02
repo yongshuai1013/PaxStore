@@ -3,6 +3,7 @@ import ZIPFoundation
 
 struct InstallView: View {
     var initialIPAURL: URL? = nil
+    var plistMode: Bool = false
     @State private var vpnConnected = false
     @State private var isCheckingVPN = false
     @State private var vpnHost = "10.7.0.1"
@@ -150,6 +151,9 @@ struct InstallView: View {
         .onAppear {
             if let initial = initialIPAURL {
                 ipaURL = initial
+                if plistMode {
+                    Task { await startPlistInstall() }
+                }
             }
             Task { await checkVPN() }
         }
