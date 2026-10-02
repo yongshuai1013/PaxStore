@@ -1,17 +1,14 @@
 import Foundation
+import Network
 import Security
 
 /// AFC 協議客戶端（上傳 IPA 到 /PublicStaging/）
-/// 使用 raw socket + SecureTransport（與 LockdownClient 相同的 TLS 寫法）
+/// 使用 Network.framework（NWConnection），TLS 行為可能與 SecureTransport 不同
 public class AFCClient {
-    private var socketFD: Int32 = -1
-    private var sslContext: SSLContext?
+    private var connection: NWConnection?
     private var useSSL = false
     private let host: String
     private var packetNum: UInt64 = 0
-    
-    private static let errWouldBlock: OSStatus = -9803
-    private static let errServerAuthCompleted: OSStatus = -9841
     
     // AFC 操作碼（對照 idevice opcode.rs／libimobiledevice afc.h）
     private let OP_STATUS: UInt64 = 0x01
@@ -28,174 +25,116 @@ public class AFCClient {
         self.host = host
     }
     
-    private static let sslReadFunc: SSLReadFunc = { connection, data, dataLength in
-        let fd = Int32(Int(bitPattern: connection))
-        let n = recv(fd, data, dataLength.pointee, 0)
-        if n > 0 {
-            dataLength.pointee = n
-            return errSecSuccess
-        } else if n == 0 {
-            dataLength.pointee = 0
-            return errSecIO
-        } else {
-            dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? AFCClient.errWouldBlock : errSecIO
-        }
-    }
-    
-    private static let sslWriteFunc: SSLWriteFunc = { connection, data, dataLength in
-        let fd = Int32(Int(bitPattern: connection))
-        let n = send(fd, data, dataLength.pointee, 0)
-        if n > 0 {
-            dataLength.pointee = n
-            return errSecSuccess
-        } else {
-            dataLength.pointee = 0
-            return (errno == EAGAIN || errno == EWOULDBLOCK) ? AFCClient.errWouldBlock : errSecIO
-        }
+    private func makeTLSOptions(identity: SecIdentity) -> NWProtocolTLS.Options {
+        let options = NWProtocolTLS.Options()
+        let secOpts = options.securityProtocolOptions
+        // 強制 TLS 1.2（之前 SecureTransport 也是這麼設的）
+        sec_protocol_options_set_min_tls_protocol_version(secOpts, .tlsv12)
+        sec_protocol_options_set_max_tls_protocol_version(secOpts, .tlsv12)
+        // SNI "Device"（對照 idevice）
+        sec_protocol_options_set_tls_server_name(secOpts, "Device")
+        // 客戶端證書（配對檔身份）
+        let secId = sec_identity_create(identity as CFTypeRef)!
+        sec_protocol_options_set_local_identity(secOpts, secId)
+        // 接受任意服務器證書（對應之前的 breakOnServerAuth + continue）
+        sec_protocol_options_set_verify_block(secOpts, { _, _, completion in
+            completion(true)
+        }, DispatchQueue.global())
+        return options
     }
     
     /// 連接到 AFC 服務端口
     public func connect(port: UInt16, useSSL: Bool, identity: SecIdentity? = nil) async throws {
-        // 給 afcd 1 秒啟動時間（懷疑 StartService 返回後服務還沒 ready）
+        // 給 afcd 1 秒啟動時間（之前加的延遲，保留）
         if !useSSL {
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         self.useSSL = useSSL
         
-        // 創建 TCP socket
-        socketFD = socket(AF_INET, SOCK_STREAM, 0)
-        guard socketFD >= 0 else { throw AFCError.connectionFailed }
-        
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        let r = host.withCString { cstr -> Int32 in
-            var inAddr = in_addr()
-            if inet_pton(AF_INET, cstr, &inAddr) == 1 {
-                addr.sin_addr = inAddr
-                return withUnsafePointer(to: &addr) {
-                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                        Darwin.connect(socketFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
-            return -1
-        }
-        guard r == 0 else {
-            close(socketFD)
-            socketFD = -1
-            throw AFCError.connectionFailed
-        }
-        
-        // 如果需要 SSL，做 SecureTransport 握手（與 LockdownClient 相同寫法）
+        let params: NWParameters
         if useSSL {
             guard let id = identity else { throw AFCError.tlsFailed("無客戶端身份") }
-            try upgradeToTLS(identity: id, port: port)
-        }
-    }
-    
-    private func upgradeToTLS(identity: SecIdentity, port: UInt16) throws {
-        guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
-            throw AFCError.tlsFailed("SSLContext 創建失敗")
-        }
-        self.sslContext = ctx
-        let connRef = unsafeBitCast(Int(socketFD), to: SSLConnectionRef.self)
-        var status = SSLSetConnection(ctx, connRef)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetConnection: \(status)") }
-        status = SSLSetIOFuncs(ctx, Self.sslReadFunc, Self.sslWriteFunc)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetIOFuncs: \(status)") }
-        status = SSLSetCertificate(ctx, [identity] as CFArray)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetCertificate: \(status)") }
-        // 對照 idevice：SNI 填 "Device"（之前誤刪，這次配合 TLS 1.2 重測）
-        status = SSLSetPeerDomainName(ctx, "Device", 6)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetPeerDomainName: \(status)") }
-        // afcd 可能不吃 TLS 1.3 ClientHello，強制只用 TLS 1.2（對照 KonnectMac 寫法）
-        status = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMin: \(status)") }
-        status = SSLSetProtocolVersionMax(ctx, .tlsProtocol12)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMax: \(status)") }
-        status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetSessionOption: \(status)") }
-        // 唯一 PeerID：防止 SecureTransport 按 peer 緩存 session，導致多次握手後拿錯 session（對照 KonnectMac）
-        let peerID = "afc-\(port)-\(UUID().uuidString)"
-        _ = peerID.withCString { ptr in
-            SSLSetPeerID(ctx, ptr, peerID.utf8.count)
-        }
-        repeat {
-            status = SSLHandshake(ctx)
-            if status == Self.errServerAuthCompleted {
-                continue
-            }
-        } while status == Self.errWouldBlock || status == Self.errServerAuthCompleted
-        guard status == errSecSuccess else {
-            throw AFCError.tlsFailed("TLS 握手失敗: \(status)")
-        }
-    }
-    
-    private func sendBytes(_ data: Data) throws {
-        if useSSL {
-            guard let ctx = sslContext else { throw AFCError.notConnected }
-            var sent = 0
-            try data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-                guard let base = ptr.baseAddress else { return }
-                while sent < data.count {
-                    var processed = 0
-                    let status = SSLWrite(ctx, base.advanced(by: sent), data.count - sent, &processed)
-                    if status != errSecSuccess && status != Self.errWouldBlock {
-                        throw AFCError.tlsFailed("SSLWrite: \(status)")
-                    }
-                    sent += processed
-                    if processed == 0 && status == Self.errWouldBlock { continue }
-                }
-            }
+            params = NWParameters(tls: makeTLSOptions(identity: id))
         } else {
-            var sent = 0
-            try data.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) in
-                guard let base = ptr.baseAddress else { return }
-                while sent < data.count {
-                    let n = send(socketFD, base.advanced(by: sent), data.count - sent, 0)
-                    if n <= 0 { throw AFCError.sendFailed }
-                    sent += n
+            params = NWParameters.tcp
+        }
+        
+        let conn = NWConnection(
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(rawValue: port)!,
+            using: params
+        )
+        self.connection = conn
+        
+        // 等待連接就緒（或失敗）
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            var resumed = false
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if !resumed {
+                        resumed = true
+                        cont.resume()
+                    }
+                case .failed(let err):
+                    if !resumed {
+                        resumed = true
+                        cont.resume(throwing: AFCError.tlsFailed("NWConnection 失敗: \(err)"))
+                    }
+                case .cancelled:
+                    if !resumed {
+                        resumed = true
+                        cont.resume(throwing: AFCError.connectionFailed)
+                    }
+                default:
+                    break
+                }
+            }
+            conn.start(queue: .global())
+            // 超時保護：10 秒
+            DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
+                if !resumed {
+                    resumed = true
+                    conn.cancel()
+                    cont.resume(throwing: AFCError.connectionFailed)
                 }
             }
         }
     }
     
-    private func recvBytes(length: Int) throws -> Data {
+    private func sendBytes(_ data: Data) async throws {
+        guard let conn = connection else { throw AFCError.notConnected }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            conn.send(content: data, completion: .contentProcessed { err in
+                if let err = err {
+                    cont.resume(throwing: AFCError.sendFailed)
+                } else {
+                    cont.resume()
+                }
+            })
+        }
+    }
+    
+    private func recvBytes(length: Int) async throws -> Data {
+        guard let conn = connection else { throw AFCError.notConnected }
         var result = Data()
         result.reserveCapacity(length)
-        if useSSL {
-            guard let ctx = sslContext else { throw AFCError.notConnected }
-            while result.count < length {
-                var buf = [UInt8](repeating: 0, count: length - result.count)
-                var processed = 0
-                let status = buf.withUnsafeMutableBytes { ptr -> OSStatus in
-                    guard let base = ptr.baseAddress else { return errSecIO }
-                    return SSLRead(ctx, base, length - result.count, &processed)
-                }
-                if status != errSecSuccess && status != Self.errWouldBlock {
-                    throw AFCError.recvFailed("SSLRead: \(status)")
-                }
-                if processed > 0 {
-                    result.append(contentsOf: buf.prefix(processed))
-                } else if status == errSecSuccess {
-                    throw AFCError.incompleteData
+        while result.count < length {
+            let remaining = length - result.count
+            let chunk: Data = try await withCheckedThrowingContinuation { cont in
+                conn.receive(minimumIncompleteLength: 1, maximumLength: remaining) { data, _, isComplete, err in
+                    if let err = err {
+                        cont.resume(throwing: AFCError.recvFailed("\(err)"))
+                    } else if let data = data, !data.isEmpty {
+                        cont.resume(returning: data)
+                    } else if isComplete {
+                        cont.resume(throwing: AFCError.incompleteData)
+                    } else {
+                        cont.resume(throwing: AFCError.incompleteData)
+                    }
                 }
             }
-        } else {
-            while result.count < length {
-                var buf = [UInt8](repeating: 0, count: length - result.count)
-                let n = buf.withUnsafeMutableBytes { ptr -> Int in
-                    guard let base = ptr.baseAddress else { return -1 }
-                    return recv(socketFD, base, length - result.count, 0)
-                }
-                if n > 0 {
-                    result.append(contentsOf: buf.prefix(n))
-                } else {
-                    throw AFCError.incompleteData
-                }
-            }
+            result.append(chunk)
         }
         return result
     }
@@ -206,14 +145,7 @@ public class AFCClient {
         return num
     }
     
-    /// 發送 AFC 包並接收回應
-    /// 包頭（40 字節，對照 idevice packet.rs）：
-    ///   offset 0: magic "CFA6LPAA" (u64)
-    ///   offset 8: entire_len = 40 + headerPayload + payload (u64 LE)
-    ///   offset 16: header_payload_len = 40 + headerPayload (u64 LE)
-    ///   offset 24: packet_num (u64 LE)
-    ///   offset 32: operation (u64 LE)
-    /// 回應同樣結構；header_payload 先讀 (header_payload_len-40)，再讀 (entire_len-header_payload_len)
+    /// 發送 AFC 包並接收回應（包頭 40 字節，對照 idevice packet.rs）
     private func transact(op: UInt64, headerPayload: Data, payload: Data, opName: String = "未知") async throws -> (op: UInt64, headerPayload: Data, payload: Data) {
         let num = nextNum()
         
@@ -228,11 +160,11 @@ public class AFCClient {
         var opLE = op.littleEndian
         header.append(Data(bytes: &opLE, count: 8))
         
-        try sendBytes(header + headerPayload + payload)
+        try await sendBytes(header + headerPayload + payload)
         
         let respHeader: Data
         do {
-            respHeader = try recvBytes(length: 40)
+            respHeader = try await recvBytes(length: 40)
         } catch {
             throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
         }
@@ -247,7 +179,7 @@ public class AFCClient {
         let hpToRead = Int(respHpLen) - 40
         if hpToRead > 0 {
             do {
-                respHp = try recvBytes(length: hpToRead)
+                respHp = try await recvBytes(length: hpToRead)
             } catch {
                 throw AFCError.operationFailed("\(opName): 讀回應頭負載失敗: \(error)")
             }
@@ -256,7 +188,7 @@ public class AFCClient {
         let pToRead = Int(respEntireLen) - Int(respHpLen)
         if pToRead > 0 {
             do {
-                respPayload = try recvBytes(length: pToRead)
+                respPayload = try await recvBytes(length: pToRead)
             } catch {
                 throw AFCError.operationFailed("\(opName): 讀回應體失敗: \(error)")
             }
@@ -265,14 +197,11 @@ public class AFCClient {
     }
     
     /// 上傳文件到設備（對照 idevice：FileOpen → Write → FileClose）
-    ///   - localURL: 本地 IPA 路徑
-    ///   - remotePath: 設備上的路徑（如 PublicStaging/app.ipa，無前導斜線）
     public func uploadFile(localURL: URL, remotePath: String, progress: @escaping (Int64, Int64) -> Void) async throws {
         let attrs = try FileManager.default.attributesOfItem(atPath: localURL.path)
         let totalSize = (attrs[.size] as? Int64) ?? 0
         
         // 1. OPEN：header_payload = mode(8) + path（無 NUL，對照 idevice）
-        //    回應操作碼為 FileOpenRes(0x0E)，handle 在回應的 header_payload 前 8 字節
         var openHp = Data()
         var mode = FOPEN_WR.littleEndian
         openHp.append(Data(bytes: &mode, count: 8))
@@ -284,11 +213,11 @@ public class AFCClient {
         }
         let handle = openHpResp.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         
-        // 2. WRITE 分塊：header_payload = handle(8)，payload = 數據塊；回應為 STATUS(0=成功)
+        // 2. WRITE 分塊
         let fileHandle = try FileHandle(forReadingFrom: localURL)
         defer { try? fileHandle.close() }
         
-        let chunkSize = 32 * 1024  // 32KB（VPN 下大包易斷）
+        let chunkSize = 32 * 1024
         var sent: Int64 = 0
         
         while sent < totalSize {
@@ -309,7 +238,7 @@ public class AFCClient {
             progress(sent, totalSize)
         }
         
-        // 3. CLOSE：header_payload = handle(8)；回應為 STATUS
+        // 3. CLOSE
         var closeHp = Data()
         var hLE2 = handle.littleEndian
         closeHp.append(Data(bytes: &hLE2, count: 8))
@@ -320,14 +249,8 @@ public class AFCClient {
     }
     
     public func disconnect() {
-        if let ctx = sslContext {
-            SSLClose(ctx)
-            self.sslContext = nil
-        }
-        if socketFD >= 0 {
-            close(socketFD)
-            socketFD = -1
-        }
+        connection?.cancel()
+        connection = nil
         useSSL = false
     }
 }
@@ -361,4 +284,3 @@ public enum AFCError: Error, LocalizedError {
         }
     }
 }
-
