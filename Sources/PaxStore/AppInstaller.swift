@@ -18,11 +18,11 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經自研 SimpleAFCClient；Network.framework + 手動封包)
+        // 3. 上傳 IPA (經 Rust idevice-ffi 的 AFC；內部自建 lockdownd，不與 Swift 重疊)
         progress("上傳 IPA... (Rust)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
-        let stagedPath = "PublicStaging/\(remoteName)"
-        let installPath = "/PublicStaging/\(remoteName)"
+        let stagedPath = "PublicStaging/\(remoteName)"  // AFC: 無前導斜線
+        let installPath = "/PublicStaging/\(remoteName)"  // installation_proxy: 絕對路徑
         let rustAfc = RustAFCClient()
         do {
             try await rustAfc.connect(pairingFileURL: pairingURL, host: host)
@@ -35,7 +35,6 @@ public class AppInstaller {
         } catch {
             rustAfc.disconnect()
             throw InstallerError.afcFailed("Rust AFC: \(error)")
-        }
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
