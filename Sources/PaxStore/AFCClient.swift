@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Network
 
 /// AFC 協議客戶端（上傳 IPA 到 /PublicStaging/）
 /// 使用 raw socket + SecureTransport（與 LockdownClient 相同的 TLS 寫法）
