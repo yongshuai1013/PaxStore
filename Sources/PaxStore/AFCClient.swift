@@ -197,63 +197,86 @@ final class AFCResponseHandler: ChannelInboundHandler {
     private var buffer = Data()
     private var waiters: [(Int, CheckedContinuation<Data, Error>)] = []
     private let lock = NSLock()
-    
+    private var closed = false
+
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        var buf = unwrapInboundIn(data)
-        lock.lock()
-        if let bytes = buf.readBytes(length: buf.readableBytes) {
-            buffer.append(contentsOf: bytes)
+        var buf = self.unwrapInboundIn(data)
+        self.lock.lock()
+        if self.closed {
+            self.lock.unlock()
+            return
         }
-        // 嘗試滿足等待者
+        if let bytes = buf.readBytes(length: buf.readableBytes) {
+            self.buffer.append(contentsOf: bytes)
+        }
+        var ready: [(CheckedContinuation<Data, Error>, Data)] = []
         var i = 0
-        while i < waiters.count {
-            let (need, cont) = waiters[i]
-            if buffer.count >= need {
-                let out = buffer.prefix(need)
-                buffer.removeFirst(need)
-                waiters.remove(at: i)
-                lock.unlock()
-                cont.resume(returning: Data(out))
-                lock.lock()
+        while i < self.waiters.count {
+            let (need, cont) = self.waiters[i]
+            if self.buffer.count >= need {
+                let out = Data(self.buffer.prefix(need))
+                self.buffer.removeFirst(need)
+                self.waiters.remove(at: i)
+                ready.append((cont, out))
             } else {
                 i += 1
             }
         }
-        lock.unlock()
+        self.lock.unlock()
+        for (cont, out) in ready {
+            cont.resume(returning: out)
+        }
     }
-    
+
+    func channelInactive(context: ChannelHandlerContext) {
+        self.failWaiters(AFCError.recvFailed("連接已關閉"))
+        context.fireChannelInactive()
+    }
+
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        lock.lock()
-        let ws = waiters
-        waiters.removeAll()
-        lock.unlock()
+        self.failWaiters(error)
+        context.close(promise: nil)
+    }
+
+    private func failWaiters(_ error: Error) {
+        self.lock.lock()
+        self.closed = true
+        let ws = self.waiters
+        self.waiters.removeAll()
+        self.lock.unlock()
         for (_, cont) in ws {
             cont.resume(throwing: error)
         }
-        context.close(promise: nil)
     }
-    
+
     func read(length: Int) async throws -> Data {
-        // 先看緩存夠不夠
-        lock.lock()
-        if buffer.count >= length {
-            let out = buffer.prefix(length)
-            buffer.removeFirst(length)
-            lock.unlock()
-            return Data(out)
+        self.lock.lock()
+        if self.closed {
+            self.lock.unlock()
+            throw AFCError.recvFailed("連接已關閉")
         }
-        lock.unlock()
-        return try await withCheckedThrowingContinuation { cont in
-            lock.lock()
-            // 再檢查一次（避免競態）
-            if buffer.count >= length {
-                let out = buffer.prefix(length)
-                buffer.removeFirst(length)
-                lock.unlock()
-                cont.resume(returning: Data(out))
+        if self.buffer.count >= length {
+            let out = Data(self.buffer.prefix(length))
+            self.buffer.removeFirst(length)
+            self.lock.unlock()
+            return out
+        }
+        self.lock.unlock()
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            self.lock.lock()
+            if self.closed {
+                self.lock.unlock()
+                cont.resume(throwing: AFCError.recvFailed("連接已關閉"))
+                return
+            }
+            if self.buffer.count >= length {
+                let out = Data(self.buffer.prefix(length))
+                self.buffer.removeFirst(length)
+                self.lock.unlock()
+                cont.resume(returning: out)
             } else {
-                waiters.append((length, cont))
-                lock.unlock()
+                self.waiters.append((length, cont))
+                self.lock.unlock()
             }
         }
     }
