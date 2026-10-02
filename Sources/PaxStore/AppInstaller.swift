@@ -25,48 +25,22 @@ public class AppInstaller {
         defer { lockdown.disconnect() }
         progress("配對驗證通過", 15)
         
-        // 4. 上傳 IPA (經 AFC)
-        // 真機證據：這台設備的 afcd 收到 TLS ClientHello 就掐線（-9806），且該端口隨後不可用；
-        // 因此每種方式都用全新的 StartService 端口，明文先試（TLS 會毒化端口）。
-        // 若設備要求 SSL 而明文被拒，再換新端口試 TLS。每一步都在 UI 顯示。
-        progress("上傳 IPA...", 20)
+        // 4. 上傳 IPA (經 Rust idevice-ffi 的 AFC)
+        progress("上傳 IPA... (Rust)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
-        let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
-        var uploadErrors: [String] = []
-        var uploaded = false
-        // 先明文後 TLS（懷疑 TLS 失敗會污染後續連接）
-        for wantSSL in [false, true] {
-            let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-            // 用 127.0.0.1：10.7.0.1 的 VPN 只轉發 62078，動態端口過去是黑洞會卡死；
-            // 127.0.0.1 有真正的 afcd，TLS -9806 是明確的協議錯誤而非卡死
-            let afcHost = "127.0.0.1"
-            guard !afcHost.isEmpty else {
-                uploadErrors.append("服務端口 \(afcPort) 不可達")
-                progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
-                continue
+        let stagedPath = "/PublicStaging/\(remoteName)"
+        let rustAfc = RustAFCClient()
+        do {
+            try await rustAfc.connect(pairingFileURL: pairingURL, host: host)
+            try await rustAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+                let pct = total > 0 ? Int(sent * 60 / total) : 0
+                progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
-            let useSSL = wantSSL && afcSSL
-            progress("AFC 服務地址=\(afcHost):\(afcPort) 試\(useSSL ? "TLS" : "明文")…", 20)
-            let afc = AFCClient(host: afcHost)
-            do {
-                try await afc.connect(port: afcPort, useSSL: useSSL, identity: useSSL ? lockdown.identity : nil)
-                try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
-                    let pct = total > 0 ? Int(sent * 60 / total) : 0
-                    progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
-                }
-                uploaded = true
-                afc.disconnect()
-                progress("上傳完成（\(useSSL ? "TLS" : "明文")）", 80)
-                break
-            } catch {
-                uploadErrors.append((useSSL ? "TLS" : "明文") + ":\(error)")
-                progress("AFC \(useSSL ? "TLS" : "明文")失敗(\(error))", 20)
-                afc.disconnect()
-                if !afcSSL { break }  // 設備沒要求 SSL，明文失敗就不用再試 TLS
-            }
-        }
-        guard uploaded else {
-            throw InstallerError.afcFailed(uploadErrors.joined(separator: "；"))
+            rustAfc.disconnect()
+            progress("上傳完成（Rust）", 80)
+        } catch {
+            rustAfc.disconnect()
+            throw InstallerError.afcFailed("Rust AFC: \(error)")
         }
         
         // 5. 經 installation_proxy 安裝
