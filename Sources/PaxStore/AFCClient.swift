@@ -103,6 +103,9 @@ public class AFCClient {
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetIOFuncs: \(status)") }
         status = SSLSetCertificate(ctx, [identity] as CFArray)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetCertificate: \(status)") }
+        // 對照 idevice：SNI 填 "Device"（之前誤刪，這次配合 TLS 1.2 重測）
+        status = SSLSetPeerDomainName(ctx, "Device", 6)
+        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetPeerDomainName: \(status)") }
         // afcd 可能不吃 TLS 1.3 ClientHello，強制只用 TLS 1.2（對照 KonnectMac 寫法）
         status = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMin: \(status)") }
