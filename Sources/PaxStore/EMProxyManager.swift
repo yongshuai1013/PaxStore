@@ -26,7 +26,4 @@ public class EMProxyManager {
         return result
     }
 
-    public func test(timeoutMs: Int32 = 2000) -> Bool {
-        return test_emotional_damage(timeoutMs) == 0
-    }
 }
