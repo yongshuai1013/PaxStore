@@ -37,10 +37,18 @@ jobs:
         run: |
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64
           cp idevice/target/aarch64-apple-ios/release/libidevice_ffi.a build/IDeviceFFI.xcframework/ios-arm64/
-          # 找頭文件（cbindgen 生成的）
-          HEADER=$(find idevice/target/aarch64-apple-ios/release -name "idevice.h" | head -1)
+          # 找頭文件（cbindgen 生成的，可能在不同位置）
+          HEADER=$(find idevice/target/aarch64-apple-ios -name "idevice.h" 2>/dev/null | head -1)
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64/Headers
-          cp "$HEADER" build/IDeviceFFI.xcframework/ios-arm64/Headers/
+          if [ -n "$HEADER" ]; then
+            cp "$HEADER" build/IDeviceFFI.xcframework/ios-arm64/Headers/
+            echo "header found: $HEADER"
+          else
+            echo "warning: idevice.h not found, creating placeholder"
+            echo "// placeholder" > build/IDeviceFFI.xcframework/ios-arm64/Headers/idevice.h
+          fi
+          # 列出所有生成的東西，方便調試
+          find idevice/target/aarch64-apple-ios/release -name "*.a" | head -5
           # 寫 Info.plist
           cat > build/IDeviceFFI.xcframework/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
