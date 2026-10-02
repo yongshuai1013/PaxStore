@@ -30,7 +30,7 @@ public class PlistInstaller {
     private var listener: NWListener?
     private var ipaURL: URL?
     private var manifestData: Data?
-    private let serverId = UUID().uuidString
+    public let serverId = UUID().uuidString
     public private(set) var port: Int = 0
 
     public var hostIP: String = "127.0.0.1"

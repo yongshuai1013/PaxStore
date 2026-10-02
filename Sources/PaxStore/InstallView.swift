@@ -18,6 +18,8 @@ struct InstallView: View {
     @State private var isDiagnosing = false
     @State private var afcDiagnostic = ""
     @State private var useExternalPlist = false
+    @State private var debugPlistURL = ""
+    @State private var debugIpaURL = ""
     
     var body: some View {
         List {
@@ -131,7 +133,12 @@ struct InstallView: View {
                     Text("用 plist 安裝 (免 VPN)")
                 }
                 .disabled(ipaURL == nil || isInstalling)
-                
+
+                if !debugPlistURL.isEmpty {
+                    Text("Plist: \(debugPlistURL)").font(.caption).textSelection(.enabled)
+                    Text("IPA: \(debugIpaURL)").font(.caption).textSelection(.enabled)
+                }
+
                 if !progressMessage.isEmpty {
                     HStack {
                         Text(progressMessage)
@@ -255,6 +262,8 @@ struct InstallView: View {
                 throw PlistError.serverFailed("無法構造安裝鏈接")
             }
             progressMessage = "正在打開系統安裝..."
+            debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
+            debugIpaURL = "http://\(PlistInstaller.shared.hostIP):\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
             await UIApplication.shared.open(trigger)
             progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
         } catch {
