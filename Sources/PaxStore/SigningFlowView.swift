@@ -289,12 +289,13 @@ struct SigningFlowView: View {
         guard let enumerator = fm.enumerator(at: payload, includingPropertiesForKeys: [.isDirectoryKey]) else {
             throw SigningError.signingFailed("無法遍歷 Payload")
         }
-        try archive.addEntry(with: "Payload", type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755)
+        let emptyProvider: (Int64, Int) throws -> Data = { _, _ in Data() }
+        try archive.addEntry(with: "Payload", type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755, provider: emptyProvider)
         for case let url as URL in enumerator {
             let rel = "Payload/" + url.path.replacingOccurrences(of: payload.path + "/", with: "")
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
-                try archive.addEntry(with: rel, type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755)
+                try archive.addEntry(with: rel, type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755, provider: emptyProvider)
             } else {
                 try archive.addEntry(with: rel, relativeTo: payload.deletingLastPathComponent(), compressionMethod: .deflate)
             }
