@@ -1,4 +1,5 @@
 import SwiftUI
+import ZIPFoundation
 
 struct InstallView: View {
     var initialIPAURL: URL? = nil
