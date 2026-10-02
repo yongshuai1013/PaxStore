@@ -243,18 +243,14 @@ struct InstallView: View {
     }
 
     private func extractAppInfo(from ipaURL: URL) throws -> (bundleId: String, name: String, version: String) {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        proc.arguments = ["-p", ipaURL.path, "Payload/*.app/Info.plist"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        try proc.run()
-        proc.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let archive = Archive(url: ipaURL, accessMode: .read) else {
+            throw PlistError.serverFailed("無法打開 IPA")
+        }
+        guard let entry = archive.first(where: { $0.path.hasSuffix(".app/Info.plist") }) else {
+            throw PlistError.serverFailed("IPA 裡找不到 Info.plist")
+        }
+        var data = Data()
+        _ = try archive.extract(entry, consumer: { data.append($0) })
         guard !data.isEmpty,
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let bundleId = plist["CFBundleIdentifier"] as? String else {
