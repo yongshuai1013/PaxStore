@@ -30,7 +30,7 @@ public class AppInstaller {
         let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
         progress("AFC 端口=\(afcPort) SSL=\(afcSSL)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
-        let stagedPath = "/PublicStaging/\(remoteName)"
+        let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
         // 先按設備要求的 SSL 上傳；若失敗（TLS 被掐等），降級明文重試一次
         var uploadError: Error?
         for attemptSSL in [afcSSL, false] {
