@@ -16,7 +16,10 @@ public class RustAFCClient {
     private func checkError(_ err: OpaquePointer?, _ context: String) throws {
         guard let e = err else { return } // NULL = 成功
         let code = idevice_ffi_error_get_code(e)
-        let msg = String(cString: idevice_ffi_error_get_message(e))
+        var msg = "unknown"
+        if let cmsg = idevice_ffi_error_get_message(e) {
+            msg = String(cString: cmsg)
+        }
         idevice_error_free(e)
         throw RustAFCError.ffiFailed("\(context): [\(code)] \(msg)")
     }
