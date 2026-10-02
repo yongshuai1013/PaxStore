@@ -98,6 +98,9 @@ public class AFCClient {
         let connRef = unsafeBitCast(Int(socketFD), to: SSLConnectionRef.self)
         var status = SSLSetConnection(ctx, connRef)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetConnection: \(status)") }
+        // 對照 idevice（openssl into_ssl("Device") / rustls SNI）：SNI 填 "Device"
+        status = SSLSetPeerDomainName(ctx, "Device", 6)
+        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetPeerDomainName: \(status)") }
         status = SSLSetIOFuncs(ctx, Self.sslReadFunc, Self.sslWriteFunc)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetIOFuncs: \(status)") }
         status = SSLSetCertificate(ctx, [identity] as CFArray)
@@ -326,3 +329,4 @@ public enum AFCError: Error, LocalizedError {
         }
     }
 }
+

@@ -36,19 +36,33 @@ public class AppInstaller {
         progress("AFC 服務地址=\(afcHost):\(afcPort) SSL=\(afcSSL)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
-        // 按設備要求的 SSL 設置連一次；失敗直接報真實錯誤，不再隱藏自動降級
-        let afc = AFCClient(host: afcHost)
-        do {
-            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? lockdown.identity : nil)
-            try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
-                let pct = total > 0 ? Int(sent * 60 / total) : 0
-                progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
+        // 連線階段：先按設備要求的 SSL 設置連（TLS 已對照 idevice 加 SNI "Device"）；
+        // 若 TLS 握手被對方掐掉（-9806），改試明文。每一步都在 UI 顯示，不是隱藏重試。
+        var connectedAFC: AFCClient?
+        var connectErrors: [String] = []
+        let attempts: [Bool] = afcSSL ? [true, false] : [false]
+        for attemptSSL in attempts {
+            if !attemptSSL && afcSSL { progress("AFC TLS 被拒，改試明文…", 20) }
+            let afc = AFCClient(host: afcHost)
+            do {
+                try await afc.connect(port: afcPort, useSSL: attemptSSL, identity: attemptSSL ? lockdown.identity : nil)
+                connectedAFC = afc
+                break
+            } catch {
+                connectErrors.append((attemptSSL ? "TLS" : "明文") + ":\(error)")
+                progress("AFC \(attemptSSL ? "TLS" : "明文")失敗(\(error))", 20)
+                afc.disconnect()
             }
-        } catch {
-            afc.disconnect()
-            throw error
         }
-        afc.disconnect()
+        guard let afc = connectedAFC else {
+            throw InstallerError.afcFailed(connectErrors.joined(separator: "；"))
+        }
+        defer { afc.disconnect() }
+        // 上傳階段：握手已過，失敗直接報真實錯誤
+        try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+            let pct = total > 0 ? Int(sent * 60 / total) : 0
+            progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
+        }
         progress("上傳完成", 80)
         
         // 5. 經 installation_proxy 安裝
@@ -83,6 +97,7 @@ public enum InstallerError: Error, LocalizedError {
     case vpnNotConnected
     case noPairingFile
     case serviceUnreachable(String, UInt16)
+    case afcFailed(String)
     
     public var errorDescription: String? {
         switch self {
@@ -92,6 +107,8 @@ public enum InstallerError: Error, LocalizedError {
             return "找不到配對檔，請先到配對檔管理導入"
         case .serviceUnreachable(let name, let port):
             return "\(name) 服務端口 \(port) 連不上（已試 127.0.0.1、Wi-Fi IP、VPN 地址）"
+        case .afcFailed(let desc):
+            return "AFC 連線失敗：\(desc)"
         }
     }
 }
