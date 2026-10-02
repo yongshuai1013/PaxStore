@@ -204,7 +204,7 @@ public class AFCClient {
     
     /// 發送 AFC 包並接收回應
     /// 包頭（40 字節，對照 idevice packet.rs）：
-    ///   offset 0: magic "AAPL6AFC" (u64)
+    ///   offset 0: magic "CFA6LPAA" (u64)
     ///   offset 8: entire_len = 40 + headerPayload + payload (u64 LE)
     ///   offset 16: header_payload_len = 40 + headerPayload (u64 LE)
     ///   offset 24: packet_num (u64 LE)
@@ -214,7 +214,7 @@ public class AFCClient {
         let num = nextNum()
         
         var header = Data()
-        header.append("AAPL6AFC".data(using: .ascii)!)
+        header.append("CFA6LPAA".data(using: .ascii)!)
         var entireLen = UInt64(40 + headerPayload.count + payload.count).littleEndian
         header.append(Data(bytes: &entireLen, count: 8))
         var hpLen = UInt64(40 + headerPayload.count).littleEndian
@@ -232,7 +232,7 @@ public class AFCClient {
         } catch {
             throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
         }
-        guard respHeader.prefix(8) == "AAPL6AFC".data(using: .ascii)! else {
+        guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
             throw AFCError.invalidResponse
         }
         let respEntireLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
