@@ -103,10 +103,6 @@ public class AFCClient {
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetIOFuncs: \(status)") }
         status = SSLSetCertificate(ctx, [identity] as CFArray)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetCertificate: \(status)") }
-        status = SSLSetProtocolVersionMin(ctx, kTLSProtocol12)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMin: \(status)") }
-        status = SSLSetProtocolVersionMax(ctx, kTLSProtocol12)
-        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMax: \(status)") }
         status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetSessionOption: \(status)") }
         repeat {
