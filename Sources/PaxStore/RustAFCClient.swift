@@ -15,11 +15,10 @@ public class RustAFCClient {
     /// 檢查 FFI 錯誤，轉為 Swift Error
     private func checkError(_ err: OpaquePointer?, _ context: String) throws {
         guard let e = err else { return } // NULL = 成功
-        let code = idevice_ffi_error_get_code(e)
-        var msg = "unknown"
-        if let cmsg = idevice_ffi_error_get_message(e) {
-            msg = String(cString: cmsg)
-        }
+        // IdeviceFfiError { code: i32, sub_code: i32, message: *const c_char }
+        let code = e.load(as: Int32.self)
+        let msgPtr = e.load(fromByteOffset: 8, as: UnsafePointer<CChar>?.self)
+        let msg = msgPtr.map { String(cString: $0) } ?? "unknown"
         idevice_error_free(e)
         throw RustAFCError.ffiFailed("\(context): [\(code)] \(msg)")
     }
@@ -141,12 +140,6 @@ public enum RustAFCError: Error, LocalizedError {
 
 @_silgen_name("idevice_error_free")
 func idevice_error_free(_ err: OpaquePointer?)
-
-@_silgen_name("idevice_ffi_error_get_code")
-func idevice_ffi_error_get_code(_ err: OpaquePointer?) -> Int32
-
-@_silgen_name("idevice_ffi_error_get_message")
-func idevice_ffi_error_get_message(_ err: OpaquePointer?) -> UnsafePointer<CChar>?
 
 @_silgen_name("idevice_pairing_file_from_bytes")
 func idevice_pairing_file_from_bytes(
