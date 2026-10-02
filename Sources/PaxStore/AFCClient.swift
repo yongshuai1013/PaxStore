@@ -13,15 +13,16 @@ public class AFCClient {
     private static let errWouldBlock: OSStatus = -9803
     private static let errServerAuthCompleted: OSStatus = -9841
     
-    // AFC 操作碼
+    // AFC 操作碼（對照 idevice opcode.rs／libimobiledevice afc.h）
     private let OP_STATUS: UInt64 = 0x01
     private let OP_DATA: UInt64 = 0x02
-    private let OP_WRITE: UInt64 = 0x05
-    private let OP_OPEN: UInt64 = 0x11
-    private let OP_CLOSE: UInt64 = 0x12
+    private let OP_OPEN: UInt64 = 0x0D      // FileOpen
+    private let OP_OPENRES: UInt64 = 0x0E   // FileOpenRes
+    private let OP_WRITE: UInt64 = 0x10     // Write (FileRefWrite)
+    private let OP_CLOSE: UInt64 = 0x14     // FileClose
     
-    // 文件打開模式
-    private let FOPEN_WR: UInt64 = 0x04
+    // 文件打開模式（對照 idevice AfcFopenMode）
+    private let FOPEN_WR: UInt64 = 0x04     // w+ O_RDWR | O_CREAT | O_TRUNC
     
     public init(host: String) {
         self.host = host
@@ -191,21 +192,28 @@ public class AFCClient {
     }
     
     /// 發送 AFC 包並接收回應
-    private func transact(op: UInt64, payload: Data, opName: String = "未知") async throws -> (op: UInt64, data: Data) {
+    /// 包頭（40 字節，對照 idevice packet.rs）：
+    ///   offset 0: magic "CFA6LPAA" (u64)
+    ///   offset 8: entire_len = 40 + headerPayload + payload (u64 LE)
+    ///   offset 16: header_payload_len = 40 + headerPayload (u64 LE)
+    ///   offset 24: packet_num (u64 LE)
+    ///   offset 32: operation (u64 LE)
+    /// 回應同樣結構；header_payload 先讀 (header_payload_len-40)，再讀 (entire_len-header_payload_len)
+    private func transact(op: UInt64, headerPayload: Data, payload: Data, opName: String = "未知") async throws -> (op: UInt64, headerPayload: Data, payload: Data) {
         let num = nextNum()
         
         var header = Data()
         header.append("CFA6LPAA".data(using: .ascii)!)
-        var totalLen = UInt64(40 + payload.count).littleEndian
-        header.append(Data(bytes: &totalLen, count: 8))
-        var opLE = op.littleEndian
-        header.append(Data(bytes: &opLE, count: 8))
+        var entireLen = UInt64(40 + headerPayload.count + payload.count).littleEndian
+        header.append(Data(bytes: &entireLen, count: 8))
+        var hpLen = UInt64(40 + headerPayload.count).littleEndian
+        header.append(Data(bytes: &hpLen, count: 8))
         var numLE = num.littleEndian
         header.append(Data(bytes: &numLE, count: 8))
-        var dataLen = UInt64(payload.count).littleEndian
-        header.append(Data(bytes: &dataLen, count: 8))
+        var opLE = op.littleEndian
+        header.append(Data(bytes: &opLE, count: 8))
         
-        try sendBytes(header + payload)
+        try sendBytes(header + headerPayload + payload)
         
         let respHeader: Data
         do {
@@ -216,43 +224,52 @@ public class AFCClient {
         guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
             throw AFCError.invalidResponse
         }
-        let respTotalLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
-        let respOp = respHeader[16..<24].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
-        let respDataLen = respHeader[32..<40].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        let respEntireLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        let respHpLen = respHeader[16..<24].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        let respOp = respHeader[32..<40].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         
-        var respData = Data()
-        let toRead = Int(respTotalLen) - 40
-        if toRead > 0 {
+        var respHp = Data()
+        let hpToRead = Int(respHpLen) - 40
+        if hpToRead > 0 {
             do {
-                respData = try recvBytes(length: toRead)
+                respHp = try recvBytes(length: hpToRead)
+            } catch {
+                throw AFCError.operationFailed("\(opName): 讀回應頭負載失敗: \(error)")
+            }
+        }
+        var respPayload = Data()
+        let pToRead = Int(respEntireLen) - Int(respHpLen)
+        if pToRead > 0 {
+            do {
+                respPayload = try recvBytes(length: pToRead)
             } catch {
                 throw AFCError.operationFailed("\(opName): 讀回應體失敗: \(error)")
             }
         }
-        return (respOp, respData.prefix(Int(respDataLen)))
+        return (respOp, respHp, respPayload)
     }
     
-    /// 上傳文件到設備
+    /// 上傳文件到設備（對照 idevice：FileOpen → Write → FileClose）
     ///   - localURL: 本地 IPA 路徑
-    ///   - remotePath: 設備上的路徑（如 /PublicStaging/app.ipa）
+    ///   - remotePath: 設備上的路徑（如 PublicStaging/app.ipa，無前導斜線）
     public func uploadFile(localURL: URL, remotePath: String, progress: @escaping (Int64, Int64) -> Void) async throws {
         let attrs = try FileManager.default.attributesOfItem(atPath: localURL.path)
         let totalSize = (attrs[.size] as? Int64) ?? 0
         
-        // 1. OPEN
-        var openPayload = Data()
+        // 1. OPEN：header_payload = mode(8) + path（無結尾 NUL，對照 idevoice mod.rs）
+        //    回應操作碼為 FileOpenRes(0x0E)，handle 在回應的 header_payload 前 8 字節
+        var openHp = Data()
         var mode = FOPEN_WR.littleEndian
-        openPayload.append(Data(bytes: &mode, count: 8))
-        openPayload.append(remotePath.data(using: .utf8)!)
-        openPayload.append(0x00)
+        openHp.append(Data(bytes: &mode, count: 8))
+        openHp.append(remotePath.data(using: .utf8)!)
         
-        let (openOp, openData) = try await transact(op: OP_OPEN, payload: openPayload, opName: "OPEN")
-        guard openOp == OP_DATA, openData.count >= 8 else {
-            throw AFCError.openFailed(remotePath)
+        let (openOp, openHpResp, _) = try await transact(op: OP_OPEN, headerPayload: openHp, payload: Data(), opName: "OPEN")
+        guard openOp == OP_OPENRES, openHpResp.count >= 8 else {
+            throw AFCError.openFailed("\(remotePath) (op=\(String(format: "0x%02X", openOp)))")
         }
-        let handle = openData.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        let handle = openHpResp.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         
-        // 2. WRITE 分塊
+        // 2. WRITE 分塊：header_payload = handle(8)，payload = 數據塊；回應為 STATUS(0=成功)
         let fileHandle = try FileHandle(forReadingFrom: localURL)
         defer { try? fileHandle.close() }
         
@@ -263,13 +280,13 @@ public class AFCClient {
             let chunk = fileHandle.readData(ofLength: chunkSize)
             if chunk.isEmpty { break }
             
-            var writePayload = Data()
+            var writeHp = Data()
             var hLE = handle.littleEndian
-            writePayload.append(Data(bytes: &hLE, count: 8))
-            writePayload.append(chunk)
+            writeHp.append(Data(bytes: &hLE, count: 8))
             
-            let (writeOp, _) = try await transact(op: OP_WRITE, payload: writePayload, opName: "WRITE")
-            guard writeOp == OP_STATUS else {
+            let (writeOp, writeHpResp, _) = try await transact(op: OP_WRITE, headerPayload: writeHp, payload: chunk, opName: "WRITE")
+            let writeCode: UInt64 = writeHpResp.count >= 8 ? writeHpResp.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self).littleEndian } : .max
+            guard writeOp == OP_STATUS, writeCode == 0 else {
                 throw AFCError.writeFailed
             }
             
@@ -277,11 +294,11 @@ public class AFCClient {
             progress(sent, totalSize)
         }
         
-        // 3. CLOSE
-        var closePayload = Data()
+        // 3. CLOSE：header_payload = handle(8)；回應為 STATUS
+        var closeHp = Data()
         var hLE2 = handle.littleEndian
-        closePayload.append(Data(bytes: &hLE2, count: 8))
-        let (closeOp, _) = try await transact(op: OP_CLOSE, payload: closePayload, opName: "CLOSE")
+        closeHp.append(Data(bytes: &hLE2, count: 8))
+        let (closeOp, _, _) = try await transact(op: OP_CLOSE, headerPayload: closeHp, payload: Data(), opName: "CLOSE")
         guard closeOp == OP_STATUS else {
             throw AFCError.closeFailed
         }

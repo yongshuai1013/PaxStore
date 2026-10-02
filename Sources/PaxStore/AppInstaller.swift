@@ -26,44 +26,46 @@ public class AppInstaller {
         progress("配對驗證通過", 15)
         
         // 4. 上傳 IPA (經 AFC)
+        // 真機證據：這台設備的 afcd 收到 TLS ClientHello 就掐線（-9806），且該端口隨後不可用；
+        // 因此每種方式都用全新的 StartService 端口，明文先試（TLS 會毒化端口）。
+        // 若設備要求 SSL 而明文被拒，再換新端口試 TLS。每一步都在 UI 顯示。
         progress("上傳 IPA...", 20)
-        let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-        // 動態服務端口不一定走 VPN 回環：10.7.0.1 通常只轉發 62078，
-        // 先找一個 TCP 真正連得上的地址（127.0.0.1 / Wi-Fi IP 直連）
-        guard let afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort) else {
-            throw InstallerError.serviceUnreachable("AFC", afcPort)
-        }
-        progress("AFC 服務地址=\(afcHost):\(afcPort) SSL=\(afcSSL)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
-        // 連線階段：先按設備要求的 SSL 設置連（TLS 已對照 idevice 加 SNI "Device"）；
-        // 若 TLS 握手被對方掐掉（-9806），改試明文。每一步都在 UI 顯示，不是隱藏重試。
-        var connectedAFC: AFCClient?
-        var connectErrors: [String] = []
-        let attempts: [Bool] = afcSSL ? [true, false] : [false]
-        for attemptSSL in attempts {
-            if !attemptSSL && afcSSL { progress("AFC TLS 被拒，改試明文…", 20) }
+        var uploadErrors: [String] = []
+        var uploaded = false
+        // 設備要求 SSL 時：先明文（fresh port），再 TLS（fresh port）；否則只試明文
+        for wantSSL in [false, true] {
+            let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
+            // 動態服務端口不一定走 VPN 回環：先找一個 TCP 真正連得上的地址
+            guard let afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort) else {
+                uploadErrors.append("服務端口 \(afcPort) 不可達")
+                progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
+                continue
+            }
+            let useSSL = wantSSL && afcSSL
+            progress("AFC 服務地址=\(afcHost):\(afcPort) 試\(useSSL ? "TLS" : "明文")…", 20)
             let afc = AFCClient(host: afcHost)
             do {
-                try await afc.connect(port: afcPort, useSSL: attemptSSL, identity: attemptSSL ? lockdown.identity : nil)
-                connectedAFC = afc
+                try await afc.connect(port: afcPort, useSSL: useSSL, identity: useSSL ? lockdown.identity : nil)
+                try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+                    let pct = total > 0 ? Int(sent * 60 / total) : 0
+                    progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
+                }
+                uploaded = true
+                afc.disconnect()
+                progress("上傳完成（\(useSSL ? "TLS" : "明文")）", 80)
                 break
             } catch {
-                connectErrors.append((attemptSSL ? "TLS" : "明文") + ":\(error)")
-                progress("AFC \(attemptSSL ? "TLS" : "明文")失敗(\(error))", 20)
+                uploadErrors.append((useSSL ? "TLS" : "明文") + ":\(error)")
+                progress("AFC \(useSSL ? "TLS" : "明文")失敗(\(error))", 20)
                 afc.disconnect()
+                if !afcSSL { break }  // 設備沒要求 SSL，明文失敗就不用再試 TLS
             }
         }
-        guard let afc = connectedAFC else {
-            throw InstallerError.afcFailed(connectErrors.joined(separator: "；"))
+        guard uploaded else {
+            throw InstallerError.afcFailed(uploadErrors.joined(separator: "；"))
         }
-        defer { afc.disconnect() }
-        // 上傳階段：握手已過，失敗直接報真實錯誤
-        try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
-            let pct = total > 0 ? Int(sent * 60 / total) : 0
-            progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
-        }
-        progress("上傳完成", 80)
         
         // 5. 經 installation_proxy 安裝
         progress("開始安裝...", 82)
