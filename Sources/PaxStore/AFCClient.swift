@@ -256,12 +256,14 @@ public class AFCClient {
         let attrs = try FileManager.default.attributesOfItem(atPath: localURL.path)
         let totalSize = (attrs[.size] as? Int64) ?? 0
         
-        // 1. OPEN：header_payload = mode(8) + path（無結尾 NUL，對照 idevoice mod.rs）
+        // 1. OPEN：header_payload = mode(8) + path + NUL
+        //    （libimobiledevice 經典實現帶 NUL 結尾；idevice 沒加但 iOS 15 的 afcd 要求）
         //    回應操作碼為 FileOpenRes(0x0E)，handle 在回應的 header_payload 前 8 字節
         var openHp = Data()
         var mode = FOPEN_WR.littleEndian
         openHp.append(Data(bytes: &mode, count: 8))
         openHp.append(remotePath.data(using: .utf8)!)
+        openHp.append(0x00)
         
         let (openOp, openHpResp, _) = try await transact(op: OP_OPEN, headerPayload: openHp, payload: Data(), opName: "OPEN")
         guard openOp == OP_OPENRES, openHpResp.count >= 8 else {
