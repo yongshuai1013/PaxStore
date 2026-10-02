@@ -29,9 +29,15 @@ public class AppInstaller {
         progress("上傳 IPA...", 20)
         let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
         progress("AFC 端口=\(afcPort) SSL=\(afcSSL)", 20)
-        try await Task.sleep(nanoseconds: 1_500_000_000)
         let afc = AFCClient(host: host)
-        try await afc.connect(port: afcPort, useSSL: afcSSL, identity: lockdown.identity)
+        // 先按設備要求的 SSL 連；若 TLS 被掐（-9806），降級明文再試一次
+        do {
+            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: lockdown.identity)
+        } catch {
+            progress("AFC SSL 失敗(\(error))，改試明文...", 20)
+            afc.disconnect()
+            try await afc.connect(port: afcPort, useSSL: false, identity: nil)
+        }
         defer { afc.disconnect() }
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "/PublicStaging/\(remoteName)"
