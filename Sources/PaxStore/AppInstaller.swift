@@ -18,23 +18,33 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經 Rust idevice-ffi 的 AFC；內部自建 lockdownd，不與 Swift 重疊)
-        progress("上傳 IPA... (Rust)", 20)
+        // 3. 上傳 IPA (經自研 SimpleAFCClient；Network.framework + 手動封包)
+        progress("上傳 IPA... (自研)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"  // AFC: 無前導斜線
         let installPath = "/PublicStaging/\(remoteName)"  // installation_proxy: 絕對路徑
-        let rustAfc = RustAFCClient()
+        // 先用 LockdownClient 拿 AFC 端口和 identity，再斷開避免會話重疊
+        let tmpLockdown = LockdownClient(host: host)
+        try await tmpLockdown.connect(pairingFileURL: pairingURL)
+        let (afcPort, _) = try await tmpLockdown.startService("com.apple.afc")
+        guard let identity = tmpLockdown.identity else {
+            tmpLockdown.disconnect()
+            throw InstallerError.afcFailed("無法取得配對 identity")
+        }
+        tmpLockdown.disconnect()
+        let simpleAfc = SimpleAFCClient()
         do {
-            try await rustAfc.connect(pairingFileURL: pairingURL, host: host)
-            try await rustAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+            try await simpleAfc.connect(host: host, port: afcPort, identity: identity)
+            try await simpleAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
                 let pct = total > 0 ? Int(sent * 60 / total) : 0
                 progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
-            rustAfc.disconnect()
-            progress("上傳完成（Rust）", 80)
+            simpleAfc.disconnect()
+            progress("上傳完成（自研）", 80)
         } catch {
-            rustAfc.disconnect()
-            throw InstallerError.afcFailed("Rust AFC: \(error)")
+            simpleAfc.disconnect()
+            let logs = simpleAfc.log.joined(separator: "\n")
+            throw InstallerError.afcFailed("自研 AFC: \(error)\n\(logs)")
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
