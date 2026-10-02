@@ -103,6 +103,11 @@ public class AFCClient {
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetIOFuncs: \(status)") }
         status = SSLSetCertificate(ctx, [identity] as CFArray)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetCertificate: \(status)") }
+        // afcd 可能不吃 TLS 1.3 ClientHello，強制只用 TLS 1.2（對照 KonnectMac 寫法）
+        status = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
+        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMin: \(status)") }
+        status = SSLSetProtocolVersionMax(ctx, .tlsProtocol12)
+        guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMax: \(status)") }
         status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetSessionOption: \(status)") }
         repeat {
