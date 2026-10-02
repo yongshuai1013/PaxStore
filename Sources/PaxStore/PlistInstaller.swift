@@ -138,13 +138,21 @@ public class PlistInstaller {
     }
 
     public func installTriggerURL(plistURL: URL) -> URL? {
-        var comps = URLComponents(string: "itms-services://")
-        comps?.queryItems = [
-            URLQueryItem(name: "action", value: "download-manifest"),
-            URLQueryItem(name: "url", value: plistURL.absoluteString),
-        ]
-        // itms-services 需要手動構造
         let urlStr = "itms-services://?action=download-manifest&url=\(plistURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        return URL(string: urlStr)
+    }
+
+    public func externalPlistURL(bundleId: String, appName: String, version: String) -> URL? {
+        let ipaURLStr = "http://127.0.0.1:\(port)/\(serverId).ipa"
+        let base = "https://api.palera.in/genPlist?bundleid=\(bundleId)&name=\(appName)&version=\(version)&fetchurl=\(ipaURLStr)"
+        guard let encoded = base.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
+                .addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
+        return URL(string: encoded)
+    }
+
+    public func installTriggerURLExternal(bundleId: String, appName: String, version: String) -> URL? {
+        guard let plistURL = externalPlistURL(bundleId: bundleId, appName: appName, version: version) else { return nil }
+        let urlStr = "itms-services://?action=download-manifest&url=\(plistURL.absoluteString)"
         return URL(string: urlStr)
     }
 }

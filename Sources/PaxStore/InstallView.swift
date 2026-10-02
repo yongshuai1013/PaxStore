@@ -17,6 +17,7 @@ struct InstallView: View {
     @State private var errorMessage: String?
     @State private var isDiagnosing = false
     @State private var afcDiagnostic = ""
+    @State private var useExternalPlist = false
     
     var body: some View {
         List {
@@ -117,6 +118,12 @@ struct InstallView: View {
                     }
                 }
                 .disabled(ipaURL == nil || isInstalling || !vpnConnected)
+
+                Picker("plist 模式", selection: $useExternalPlist) {
+                    Text("本地").tag(false)
+                    Text("線上 (iOS 18+)").tag(true)
+                }
+                .pickerStyle(.segmented)
 
                 Button(action: {
                     Task { await startPlistInstall() }
@@ -235,7 +242,16 @@ struct InstallView: View {
                 appName: info.name,
                 version: info.version
             )
-            guard let trigger = PlistInstaller.shared.installTriggerURL(plistURL: plistURL) else {
+            let trigger: URL?
+            if useExternalPlist {
+                progressMessage = "正在生成線上 plist..."
+                trigger = PlistInstaller.shared.installTriggerURLExternal(
+                    bundleId: info.bundleId, appName: info.name, version: info.version
+                )
+            } else {
+                trigger = PlistInstaller.shared.installTriggerURL(plistURL: plistURL)
+            }
+            guard let trigger = trigger else {
                 throw PlistError.serverFailed("無法構造安裝鏈接")
             }
             progressMessage = "正在打開系統安裝..."
