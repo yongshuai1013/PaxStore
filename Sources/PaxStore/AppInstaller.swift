@@ -12,7 +12,7 @@ public class AppInstaller {
         progress("檢查 VPN 連線...", 0)
         let vpnOK = await VPNConnectionChecker.shared.checkConnection()
         guard vpnOK else { throw InstallerError.vpnNotConnected }
-        let host = VPNConnectionChecker.shared.gatewayHost
+        let host = VPNConnectionChecker.shared.effectiveGatewayHost
         
         // 2. 找到配對檔
         progress("讀取配對檔...", 5)
@@ -75,7 +75,7 @@ public class AppInstaller {
         lines.append("AFC 引擎: SwiftNIO/BoringSSL (build be849008+)")
         let vpnOK = await VPNConnectionChecker.shared.checkConnection()
         guard vpnOK else { return "VPN 未連接" }
-        let gatewayHost = VPNConnectionChecker.shared.gatewayHost
+        let gatewayHost = VPNConnectionChecker.shared.effectiveGatewayHost
         guard let pairingURL = findPairingFile() else { return "找不到配對檔" }
         let lockdown = LockdownClient(host: gatewayHost)
         do {

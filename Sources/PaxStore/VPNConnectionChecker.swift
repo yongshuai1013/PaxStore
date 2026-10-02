@@ -7,9 +7,26 @@ import Darwin
 public class VPNConnectionChecker {
     public static let shared = VPNConnectionChecker()
 
-    /// VPN 網關地址（手動輸入的 fallback；自動發現成功後會更新為實際可用的地址）
+    /// VPN 網關地址（自動發現的值；手動設置會覆蓋）
     public var gatewayHost = "10.7.0.1"
     public var gatewayPort: UInt16 = 62078
+
+    /// 手動設置的 Device IP（UserDefaults 持久化；設置後優先於自動發現）
+    public var manualGatewayHost: String? {
+        get { UserDefaults.standard.string(forKey: "manualDeviceIP") }
+        set {
+            if let v = newValue, !v.isEmpty {
+                UserDefaults.standard.set(v, forKey: "manualDeviceIP")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "manualDeviceIP")
+            }
+        }
+    }
+
+    /// 實際使用的網關地址：手動優先，否則用自動發現的
+    public var effectiveGatewayHost: String {
+        manualGatewayHost ?? gatewayHost
+    }
 
     public var lastDiagnostic: String = ""
 
@@ -135,6 +152,10 @@ public class VPNConnectionChecker {
         }
         if r == 0 { return false }
         return errno == EADDRINUSE
+    }
+
+    public func tcpProbe(host: String, port: UInt16, timeoutMs: Int) async -> Bool {
+        await probe(host: host, port: port, timeout: TimeInterval(timeoutMs) / 1000.0)
     }
 
     private func probe(host: String, port: UInt16, timeout: TimeInterval) async -> Bool {

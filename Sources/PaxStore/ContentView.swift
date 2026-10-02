@@ -48,6 +48,9 @@ struct ContentView: View {
                         NavigationLink(destination: InstallView()) {
                             Text("安裝 App")
                         }
+                        NavigationLink(destination: ConnectionConfigView()) {
+                            Text("連接配置")
+                        }
                         Button("登出") {
                             PaxAuthService.shared.logout()
                             isLoggedIn = false
