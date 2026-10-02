@@ -10,9 +10,6 @@ packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation.git
     from: 0.9.19
-  swift-nio-ssl:
-    url: https://github.com/apple/swift-nio-ssl.git
-    from: 2.0.0
   SideSign:
     url: https://github.com/yongshuai1013/SideSign.git
     revision: da194c60f5366394fb715354391952dd9ca89ac4
@@ -31,8 +28,6 @@ targets:
       - package: SideSign
       - package: CodeSignKit
       - package: ZIPFoundation
-      - package: swift-nio-ssl
-        product: NIOSSL
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
       PRODUCT_NAME: PaxStore
