@@ -37,12 +37,8 @@ public class AppInstaller {
         // 設備要求 SSL 時：先明文（fresh port），再 TLS（fresh port）；否則只試明文
         for wantSSL in [false, true] {
             let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-            // 動態服務端口不一定走 VPN 回環：先找一個 TCP 真正連得上的地址
-            guard let afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort) else {
-                uploadErrors.append("服務端口 \(afcPort) 不可達")
-                progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
-                continue
-            }
+            // 對照 SideStore/idevice：AFC 用跟 lockdown 同一個 host（gatewayHost），不用 127.0.0.1
+            let afcHost = host
             let useSSL = wantSSL && afcSSL
             progress("AFC 服務地址=\(afcHost):\(afcPort) 試\(useSSL ? "TLS" : "明文")…", 20)
             let afc = AFCClient(host: afcHost)
