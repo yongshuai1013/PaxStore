@@ -229,14 +229,12 @@ struct SigningFlowView: View {
             try await signer.signApp(at: appURL, provisioningProfiles: profiles)
             log("簽名完成")
             
-            // 重打包為 IPA
+            // 重打包為 IPA（ZIPFoundation 手動打包，指定壓縮）
             log("重打包 IPA...")
             let signedIPA = FileManager.default.temporaryDirectory
                 .appendingPathComponent("\(appURL.deletingPathExtension().lastPathComponent)-signed.ipa")
             try? FileManager.default.removeItem(at: signedIPA)
-            try FileManager.default.zipItem(at: payload, to: signedIPA)
-            // 注意：zipItem 會把 Payload 目錄本身打包，需要調整
-            // 實際應該用更精確的方式，這裡先簡化
+            try zipPayload(payload, to: signedIPA)
             signedIPAURL = signedIPA
             log("完成: \(signedIPA.lastPathComponent)")
             
@@ -281,6 +279,26 @@ struct SigningFlowView: View {
     
     private func unzip(_ src: URL, to dest: URL) async throws {
         try FileManager.default.unzipItem(at: src, to: dest)
+    }
+
+    private func zipPayload(_ payload: URL, to dest: URL) throws {
+        guard let archive = Archive(url: dest, accessMode: .create) else {
+            throw SigningError.signingFailed("無法創建 ZIP")
+        }
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: payload, includingPropertiesForKeys: [.isDirectoryKey]) else {
+            throw SigningError.signingFailed("無法遍歷 Payload")
+        }
+        try archive.addEntry(with: "Payload", type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755)
+        for case let url as URL in enumerator {
+            let rel = "Payload/" + url.path.replacingOccurrences(of: payload.path + "/", with: "")
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir {
+                try archive.addEntry(with: rel, type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755)
+            } else {
+                try archive.addEntry(with: rel, relativeTo: payload.deletingLastPathComponent(), compressionMethod: .deflate)
+            }
+        }
     }
     
     private func embedProfiles(_ profiles: [SideSign.ProvisioningProfile], into appURL: URL) throws {
