@@ -18,14 +18,7 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 連接 lockdownd（TLS + 握手）
-        progress("連接設備...", 10)
-        let lockdown = LockdownClient(host: host)
-        try await lockdown.connect(pairingFileURL: pairingURL)
-        defer { lockdown.disconnect() }
-        progress("配對驗證通過", 15)
-        
-        // 4. 上傳 IPA (經 Rust idevice-ffi 的 AFC)
+        // 3. 上傳 IPA (經 Rust idevice-ffi 的 AFC；內部自建 lockdownd，不與 Swift 重疊)
         progress("上傳 IPA... (Rust)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"  // AFC: 無前導斜線
@@ -44,6 +37,13 @@ public class AppInstaller {
             throw InstallerError.afcFailed("Rust AFC: \(error)")
         }
         
+        // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
+        progress("連接設備...", 81)
+        let lockdown = LockdownClient(host: host)
+        try await lockdown.connect(pairingFileURL: pairingURL)
+        defer { lockdown.disconnect() }
+        progress("配對驗證通過", 82)
+
         // 5. 經 installation_proxy 安裝
         progress("開始安裝...", 82)
         let proxy = InstallationProxy(lockdown: lockdown)
