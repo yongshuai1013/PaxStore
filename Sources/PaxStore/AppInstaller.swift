@@ -94,10 +94,10 @@ public class AppInstaller {
         do {
             try await lockdown.connect(pairingFileURL: pairingURL)
         } catch {
-            return "lockdownd 連接失敗: \\(error)"
+            return "lockdownd 連接失敗: \(error)"
         }
         defer { lockdown.disconnect() }
-        lines.append("lockdownd OK (\\(gatewayHost):62078)")
+        lines.append("lockdownd OK (\(gatewayHost):62078)")
         var hosts = ["127.0.0.1"]
         if let wifiIP = VPNConnectionChecker.shared.discoverWiFiIP(), wifiIP != "127.0.0.1", !hosts.contains(wifiIP) {
             hosts.append(wifiIP)
@@ -106,7 +106,7 @@ public class AppInstaller {
             hosts.append(gatewayHost)
         }
         for host in hosts {
-            lines.append("— \\(host) —")
+            lines.append("— \(host) —")
             for wantSSL in [true, false] {
                 let label = wantSSL ? "TLS" : "明文"
                 do {
@@ -117,12 +117,12 @@ public class AppInstaller {
                     do {
                         try await afc.connect(port: port, useSSL: useSSL, identity: useSSL ? lockdown.identity : nil)
                         afc.disconnect()
-                        lines.append("  \\(actualLabel) \\(host):\\(port): 連接成功")
+                        lines.append("  \(actualLabel) \(host):\(port): 連接成功")
                     } catch {
-                        lines.append("  \\(actualLabel) \\(host):\\(port): \\(error)")
+                        lines.append("  \(actualLabel) \(host):\(port): \(error)")
                     }
                 } catch {
-                    lines.append("  \\(label) StartService 失敗: \\(error)")
+                    lines.append("  \(label) StartService 失敗: \(error)")
                 }
             }
         }
