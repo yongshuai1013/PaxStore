@@ -13,6 +13,7 @@ public class AFCClient {
     
     private let OP_STATUS: UInt64 = 0x01
     private let OP_DATA: UInt64 = 0x02
+    private let OP_MKDIR: UInt64 = 0x09
     private let OP_OPEN: UInt64 = 0x0D
     private let OP_OPENRES: UInt64 = 0x0E
     private let OP_WRITE: UInt64 = 0x10
@@ -149,9 +150,31 @@ public class AFCClient {
         return (respOp, respHp, respPayload)
     }
     
+    public func makeDirectory(path: String) async throws {
+        let hp = path.data(using: .utf8)!
+        let (op, hpResp, _) = try await transact(op: OP_MKDIR, headerPayload: hp, payload: Data(), opName: "MKDIR")
+        guard op == OP_STATUS else {
+            throw AFCError.operationFailed("MKDIR \(path) (op=\(String(format: "0x%02X", op)))")
+        }
+        let code: UInt64 = hpResp.count >= 8 ? hpResp.prefix(8).withUnsafeBytes { $0.load(as: UInt64.self).littleEndian } : .max
+        if code != 0 { throw AFCError.operationFailed("MKDIR \(path) code=\(code)") }
+    }
+
+    private func makeParentDirs(for remotePath: String) async throws {
+        var parts = remotePath.split(separator: "/").map(String.init)
+        guard parts.count > 1 else { return }
+        parts.removeLast()
+        var cur = ""
+        for p in parts {
+            cur = cur.isEmpty ? p : cur + "/" + p
+            try? await makeDirectory(path: cur)
+        }
+    }
+
     public func uploadFile(localURL: URL, remotePath: String, progress: @escaping (Int64, Int64) -> Void) async throws {
         let attrs = try FileManager.default.attributesOfItem(atPath: localURL.path)
         let totalSize = (attrs[.size] as? Int64) ?? 0
+        try await makeParentDirs(for: remotePath)
         var openHp = Data()
         var mode = FOPEN_WR.littleEndian
         openHp.append(Data(bytes: &mode, count: 8))
