@@ -37,9 +37,15 @@ public class AppInstaller {
         // 設備要求 SSL 時：先明文（fresh port），再 TLS（fresh port）；否則只試明文
         for wantSSL in [false, true] {
             let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-            // 動態服務端口不一定走 VPN 回環：先找一個 TCP 真正連得上的地址
-            //（注意：10.7.0.1 的 VPN 只轉發 62078，動態端口走那邊是黑洞會卡死，必須用 127.0.0.1）
-            guard let afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort) else {
+            // 測試：優先用 Wi-Fi IP（不用 127.0.0.1），看 TLS -9806 是否與回環有關
+            // 動態服務端口不一定走 VPN 回環；10.7.0.1 只轉發 62078，走那邊是黑洞
+            var afcHost: String? = nil
+            if let wifiIP = VPNConnectionChecker.shared.discoverWiFiIP() {
+                afcHost = wifiIP
+            } else {
+                afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort)
+            }
+            guard let afcHost = afcHost else {
                 uploadErrors.append("服務端口 \(afcPort) 不可達")
                 progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
                 continue
