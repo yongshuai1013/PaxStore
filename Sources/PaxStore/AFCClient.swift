@@ -27,19 +27,9 @@ public class AFCClient {
     
     private func makeTLSOptions(identity: SecIdentity) -> NWProtocolTLS.Options {
         let options = NWProtocolTLS.Options()
-        let secOpts = options.securityProtocolOptions
-        // 強制 TLS 1.2（之前 SecureTransport 也是這麼設的）
-        sec_protocol_options_set_min_tls_protocol_version(secOpts, .tlsv12)
-        sec_protocol_options_set_max_tls_protocol_version(secOpts, .tlsv12)
-        // SNI "Device"（對照 idevice）
-        sec_protocol_options_set_tls_server_name(secOpts, "Device")
         // 客戶端證書（配對檔身份）
         let secId = sec_identity_create(identity as CFTypeRef)!
-        sec_protocol_options_set_local_identity(secOpts, secId)
-        // 接受任意服務器證書（對應之前的 breakOnServerAuth + continue）
-        sec_protocol_options_set_verify_block(secOpts, { _, _, completion in
-            completion(true)
-        }, DispatchQueue.global())
+        sec_protocol_options_set_local_identity(options.securityProtocolOptions, secId)
         return options
     }
     
