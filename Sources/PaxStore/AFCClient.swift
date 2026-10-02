@@ -66,39 +66,31 @@ public class AFCClient {
         )
         self.connection = conn
         
-        // 等待連接就緒（或失敗）
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            var resumed = false
-            conn.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    if !resumed {
-                        resumed = true
-                        cont.resume()
+        // 等待連接就緒（或失敗），10 秒超時
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    conn.stateUpdateHandler = { state in
+                        switch state {
+                        case .ready:
+                            cont.resume()
+                        case .failed(let err):
+                            cont.resume(throwing: AFCError.tlsFailed("NWConnection 失敗: \(err)"))
+                        case .cancelled:
+                            cont.resume(throwing: AFCError.connectionFailed)
+                        default:
+                            break
+                        }
                     }
-                case .failed(let err):
-                    if !resumed {
-                        resumed = true
-                        cont.resume(throwing: AFCError.tlsFailed("NWConnection 失敗: \(err)"))
-                    }
-                case .cancelled:
-                    if !resumed {
-                        resumed = true
-                        cont.resume(throwing: AFCError.connectionFailed)
-                    }
-                default:
-                    break
+                    conn.start(queue: .global())
                 }
             }
-            conn.start(queue: .global())
-            // 超時保護：10 秒
-            DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
-                if !resumed {
-                    resumed = true
-                    conn.cancel()
-                    cont.resume(throwing: AFCError.connectionFailed)
-                }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 10_000_000_000)
+                throw AFCError.connectionFailed
             }
+            try await group.next()
+            group.cancelAll()
         }
     }
     
