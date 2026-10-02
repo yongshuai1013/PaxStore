@@ -32,8 +32,13 @@ public class AppInstaller {
             throw InstallerError.afcFailed("無法取得配對 identity")
         }
         tmpLockdown.disconnect()
-        // AFC 走 Wi-Fi IP（診斷證明可通）；VPN 只轉發 10.7.0.1:62078，動態端口不轉，故不用 10.7.0.1
-        let afcHost = VPNConnectionChecker.shared.discoverWiFiIP() ?? "127.0.0.1"
+        // EMProxy+WireGuard 開啟時走 10.7.0.1（隧道轉發全部端口）；否則走 Wi-Fi IP
+        let afcHost: String
+        if EMProxyManager.shared.isRunning {
+            afcHost = "10.7.0.1"
+        } else {
+            afcHost = VPNConnectionChecker.shared.discoverWiFiIP() ?? "127.0.0.1"
+        }
         let afc = AFCClient(host: afcHost)
         do {
             try await afc.connect(port: afcPort, useSSL: true, identity: afcIdentity)
