@@ -11,6 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Download IDeviceFFI xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 找最近一次成功的 Rust 構建
+          RUN_ID=$(gh api repos/yongshuai1013/PaxStore/actions/workflows/build-rust-idevice.yml/runs --jq '.workflow_runs[] | select(.conclusion=="success") | .id' | head -1)
+          echo "Using Rust build run: $RUN_ID"
+          ART_ID=$(gh api repos/yongshuai1013/PaxStore/actions/runs/$RUN_ID/artifacts --jq '.artifacts[] | select(.name=="IDeviceFFI-xcframework") | .id')
+          mkdir -p /tmp/idevice_dl
+          gh api repos/yongshuai1013/PaxStore/actions/artifacts/$ART_ID/zip > /tmp/idevice_dl/xcf.zip
+          mkdir -p Libraries
+          unzip -q -o /tmp/idevice_dl/xcf.zip -d Libraries/IDeviceFFI.xcframework
+          ls -lh Libraries/IDeviceFFI.xcframework/ios-arm64/
+          
       - name: Install XcodeGen
         run: brew install xcodegen
         
