@@ -29,22 +29,28 @@ public class AppInstaller {
         progress("上傳 IPA...", 20)
         let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
         progress("AFC 端口=\(afcPort) SSL=\(afcSSL)", 20)
-        let afc = AFCClient(host: host)
-        // 先按設備要求的 SSL 連；若 TLS 被掐（-9806），降級明文再試一次
-        do {
-            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: lockdown.identity)
-        } catch {
-            progress("AFC SSL 失敗(\(error))，改試明文...", 20)
-            afc.disconnect()
-            try await afc.connect(port: afcPort, useSSL: false, identity: nil)
-        }
-        defer { afc.disconnect() }
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "/PublicStaging/\(remoteName)"
-        try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
-            let pct = total > 0 ? Int(sent * 60 / total) : 0
-            progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
+        // 先按設備要求的 SSL 上傳；若失敗（TLS 被掐等），降級明文重試一次
+        var uploadError: Error?
+        for attemptSSL in [afcSSL, false] {
+            let afc = AFCClient(host: host)
+            do {
+                try await afc.connect(port: afcPort, useSSL: attemptSSL, identity: attemptSSL ? lockdown.identity : nil)
+                try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+                    let pct = total > 0 ? Int(sent * 60 / total) : 0
+                    progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
+                }
+                afc.disconnect()
+                uploadError = nil
+                break
+            } catch {
+                uploadError = error
+                progress("AFC \(attemptSSL ? "SSL" : "明文")失敗(\(error))，換路重試...", 20)
+                afc.disconnect()
+            }
         }
+        if let e = uploadError { throw e }
         progress("上傳完成", 80)
         
         // 5. 經 installation_proxy 安裝
