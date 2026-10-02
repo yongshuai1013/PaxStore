@@ -1,16 +1,30 @@
 import SwiftUI
 
 struct ConnectionConfigView: View {
+    @State private var useLocalVPN = false
     @State private var deviceIP = ""
     @State private var reachable: String = ""
+    @State private var bindHost = ""
+    @State private var bindPort = ""
     @State private var isChecking = false
+
+    private let defaults = UserDefaults.standard
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Use Local VPN", isOn: $useLocalVPN)
+            }
+
             Section(header: Text("REMOTE ENDPOINT")) {
-                TextField("Device IP", text: $deviceIP)
-                    .keyboardType(.decimalPad)
-                    .autocapitalization(.none)
+                HStack {
+                    Text("Device IP")
+                    Spacer()
+                    TextField("10.7.0.1", text: $deviceIP)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.decimalPad)
+                        .autocapitalization(.none)
+                }
                 HStack {
                     Text("Reachable")
                     Spacer()
@@ -21,27 +35,57 @@ struct ConnectionConfigView: View {
                     Task { await checkReachable() }
                 }
                 .disabled(isChecking)
+                Text("Note: 'Device IP' is mandatory.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            Section {
-                Button("保存") {
-                    VPNConnectionChecker.shared.manualGatewayHost = deviceIP.trimmingCharacters(in: .whitespaces)
+
+            Section(header: Text("WIREGUARD SERVER PARAMETERS")) {
+                HStack {
+                    Text("Bind Host / IP")
+                    Spacer()
+                    TextField("127.0.0.1", text: $bindHost)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.decimalPad)
+                        .autocapitalization(.none)
                 }
-                Button("清除手動設置（恢復自動）") {
-                    VPNConnectionChecker.shared.manualGatewayHost = nil
-                    deviceIP = ""
+                HStack {
+                    Text("Bind Port")
+                    Spacer()
+                    TextField("51820", text: $bindPort)
+                        .multilineTextAlignment(.trailing)
+                        .keyboardType(.numberPad)
                 }
-                .foregroundColor(.red)
-            }
-            Section(header: Text("說明")) {
-                Text("Device IP 為必填。留空則使用自動發現的值（默認 10.7.0.1）。")
+                Text("Configures the local UDP loopback host and port bound by EMProxy.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
         .navigationTitle("Connection Config")
-        .onAppear {
-            deviceIP = VPNConnectionChecker.shared.manualGatewayHost ?? ""
+        .navigationBarItems(trailing: Button("Confirm") { save() })
+        .onAppear { load() }
+    }
+
+    private func load() {
+        useLocalVPN = defaults.bool(forKey: "useLocalVPN")
+        deviceIP = defaults.string(forKey: "manualDeviceIP") ?? ""
+        bindHost = defaults.string(forKey: "emproxyBindHost") ?? "127.0.0.1"
+        bindPort = defaults.string(forKey: "emproxyBindPort") ?? "51820"
+        VPNConnectionChecker.shared.manualGatewayHost = defaults.string(forKey: "manualDeviceIP")
+    }
+
+    private func save() {
+        defaults.set(useLocalVPN, forKey: "useLocalVPN")
+        let ip = deviceIP.trimmingCharacters(in: .whitespaces)
+        if ip.isEmpty {
+            defaults.removeObject(forKey: "manualDeviceIP")
+            VPNConnectionChecker.shared.manualGatewayHost = nil
+        } else {
+            defaults.set(ip, forKey: "manualDeviceIP")
+            VPNConnectionChecker.shared.manualGatewayHost = ip
         }
+        defaults.set(bindHost.trimmingCharacters(in: .whitespaces), forKey: "emproxyBindHost")
+        defaults.set(bindPort.trimmingCharacters(in: .whitespaces), forKey: "emproxyBindPort")
     }
 
     private func checkReachable() async {
