@@ -71,7 +71,7 @@ public class RustAFCClient {
         try await Task.detached(priority: .userInitiated) {
             var fh: OpaquePointer?
             let errOpen = remotePath.withCString { cstr in
-                afc_file_open(afc, cstr, AfcWrOnly, &fh)
+                afc_file_open(afc, cstr, AfcWr, &fh)
             }
             try self.checkError(errOpen, "AFC OPEN \(remotePath)")
             guard let fileHandle = fh else {
