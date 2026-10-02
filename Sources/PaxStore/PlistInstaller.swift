@@ -2,6 +2,27 @@ import Foundation
 import Network
 import UIKit
 
+func getWiFiIPAddress() -> String? {
+    var ifaddr: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
+    defer { freeifaddrs(ifaddr) }
+    for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+        let flags = Int32(ptr.pointee.ifa_flags)
+        let addr = ptr.pointee.ifa_addr.pointee
+        if (flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING),
+           addr.sa_family == UInt8(AF_INET) {
+            let name = String(cString: ptr.pointee.ifa_name)
+            if name == "en0" {
+                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(ptr.pointee.ifa_addr, socklen_t(addr.sa_len), &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    return String(cString: hostname)
+                }
+            }
+        }
+    }
+    return nil
+}
+
 public class PlistInstaller {
     public static let shared = PlistInstaller()
     private init() {}
@@ -12,8 +33,13 @@ public class PlistInstaller {
     private let serverId = UUID().uuidString
     public private(set) var port: Int = 0
 
+    public var hostIP: String = "127.0.0.1"
+
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
         self.ipaURL = ipaURL
+        if let ip = getWiFiIPAddress() {
+            self.hostIP = ip
+        }
         self.manifestData = makeManifest(bundleId: bundleId, appName: appName, version: version)
 
         let params = NWParameters.tcp
@@ -47,7 +73,7 @@ public class PlistInstaller {
 
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "127.0.0.1"
+        comps.host = hostIP
         comps.port = actualPort
         comps.path = "/\(serverId).plist"
         guard let url = comps.url else { throw PlistError.serverFailed("無法構造 plist URL") }
@@ -60,7 +86,7 @@ public class PlistInstaller {
     }
 
     private func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://127.0.0.1:\(port)"
+        let base = "http://\(hostIP):\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
@@ -143,7 +169,7 @@ public class PlistInstaller {
     }
 
     public func externalPlistURL(bundleId: String, appName: String, version: String) -> URL? {
-        let ipaURLStr = "http://127.0.0.1:\(port)/\(serverId).ipa"
+        let ipaURLStr = "http://\(hostIP):\(port)/\(serverId).ipa"
         let base = "https://api.palera.in/genPlist?bundleid=\(bundleId)&name=\(appName)&version=\(version)&fetchurl=\(ipaURLStr)"
         guard let encoded = base.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
