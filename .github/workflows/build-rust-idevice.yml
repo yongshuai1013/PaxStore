@@ -30,8 +30,8 @@ jobs:
             --no-default-features \
             --features "afc,tcp,installation_proxy,aws-lc"
           # 找生成的靜態庫和頭文件
-          ls -lh ../../target/aarch64-apple-ios/release/libidevice_ffi.a
-          find ../../target/aarch64-apple-ios/release -name "idevice.h" | head -5
+          ls -lh ../target/aarch64-apple-ios/release/libidevice_ffi.a
+          find ../target/aarch64-apple-ios/release -name "idevice.h" | head -5
           
       - name: Create xcframework
         run: |
