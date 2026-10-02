@@ -7,6 +7,8 @@ struct ConnectionConfigView: View {
     @State private var bindHost = ""
     @State private var bindPort = ""
     @State private var isChecking = false
+    @State private var emproxyRunning = false
+    @State private var emproxyMsg = ""
 
     private let defaults = UserDefaults.standard
 
@@ -59,6 +61,20 @@ struct ConnectionConfigView: View {
                 Text("Configures the local UDP loopback host and port bound by EMProxy.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                HStack {
+                    Text("EMProxy 狀態")
+                    Spacer()
+                    Text(emproxyRunning ? "運行中" : "已停止")
+                        .foregroundColor(emproxyRunning ? .green : .secondary)
+                }
+                Button(emproxyRunning ? "停止 EMProxy" : "啟動 EMProxy") {
+                    toggleEMProxy()
+                }
+                if !emproxyMsg.isEmpty {
+                    Text(emproxyMsg)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .navigationTitle("Connection Config")
@@ -72,6 +88,7 @@ struct ConnectionConfigView: View {
         bindHost = defaults.string(forKey: "emproxyBindHost") ?? "127.0.0.1"
         bindPort = defaults.string(forKey: "emproxyBindPort") ?? "51820"
         VPNConnectionChecker.shared.manualGatewayHost = defaults.string(forKey: "manualDeviceIP")
+        emproxyRunning = EMProxyManager.shared.isRunning
     }
 
     private func save() {
@@ -98,5 +115,19 @@ struct ConnectionConfigView: View {
         }
         let ok = await VPNConnectionChecker.shared.tcpProbe(host: ip, port: 62078, timeoutMs: 3000)
         reachable = ok ? "Yes" : "No"
+    }
+
+    private func toggleEMProxy() {
+        if EMProxyManager.shared.isRunning {
+            let rc = EMProxyManager.shared.stop()
+            emproxyRunning = false
+            emproxyMsg = rc == 0 ? "已停止" : "停止失敗: \(rc)"
+        } else {
+            let host = bindHost.trimmingCharacters(in: .whitespaces)
+            let port = UInt16(bindPort.trimmingCharacters(in: .whitespaces)) ?? 51820
+            let rc = EMProxyManager.shared.start(bindHost: host.isEmpty ? "127.0.0.1" : host, bindPort: port)
+            emproxyRunning = EMProxyManager.shared.isRunning
+            emproxyMsg = rc == 0 ? "已啟動 \(host):\(port)" : "啟動失敗: \(rc)"
+        }
     }
 }
