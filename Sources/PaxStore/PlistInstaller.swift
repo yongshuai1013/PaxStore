@@ -1,0 +1,154 @@
+import Foundation
+import Network
+import UIKit
+
+public class PlistInstaller {
+    public static let shared = PlistInstaller()
+    private init() {}
+
+    private var listener: NWListener?
+    private var ipaURL: URL?
+    private var manifestData: Data?
+    private let serverId = UUID().uuidString
+    public private(set) var port: Int = 0
+
+    public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
+        self.ipaURL = ipaURL
+        self.manifestData = makeManifest(bundleId: bundleId, appName: appName, version: version)
+
+        let params = NWParameters.tcp
+        params.allowLocalEndpointReuse = true
+        let listener = try NWListener(using: params, on: 0)
+        self.listener = listener
+
+        let sem = DispatchSemaphore(value: 0)
+        var actualPort: Int = 0
+        listener.stateUpdateHandler = { state in
+            if case .ready = state {
+                if let p = listener.port?.rawValue {
+                    actualPort = Int(p)
+                }
+                sem.signal()
+            } else if case .failed(_) = state {
+                sem.signal()
+            }
+        }
+        listener.newConnectionHandler = { [weak self] conn in
+            self?.handleConnection(conn)
+        }
+        listener.start(queue: .global())
+
+        _ = sem.wait(timeout: .now() + 5)
+        self.port = actualPort
+        guard actualPort > 0 else { throw PlistError.serverFailed("無法綁定端口") }
+
+        // 更新 manifest 中的端口
+        self.manifestData = makeManifest(bundleId: bundleId, appName: appName, version: version)
+
+        var comps = URLComponents()
+        comps.scheme = "http"
+        comps.host = "127.0.0.1"
+        comps.port = actualPort
+        comps.path = "/\(serverId).plist"
+        guard let url = comps.url else { throw PlistError.serverFailed("無法構造 plist URL") }
+        return url
+    }
+
+    public func stop() {
+        listener?.cancel()
+        listener = nil
+    }
+
+    private func makeManifest(bundleId: String, appName: String, version: String) -> Data {
+        let base = "http://127.0.0.1:\(port)"
+        let manifest: [String: Any] = [
+            "items": [[
+                "assets": [
+                    ["kind": "software-package", "url": "\(base)/\(serverId).ipa"],
+                    ["kind": "display-image", "url": "\(base)/icon57.png"],
+                    ["kind": "full-size-image", "url": "\(base)/icon512.png"],
+                ],
+                "metadata": [
+                    "bundle-identifier": bundleId,
+                    "bundle-version": version,
+                    "kind": "software",
+                    "title": appName,
+                ],
+            ]],
+        ]
+        return (try? PropertyListSerialization.data(fromPropertyList: manifest, format: .xml, options: 0)) ?? Data()
+    }
+
+    private func handleConnection(_ conn: NWConnection) {
+        conn.start(queue: .global())
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
+            guard let self = self, let data = data,
+                  let req = String(data: data, encoding: .utf8) else {
+                conn.cancel()
+                return
+            }
+            let path = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            self.respond(to: path, on: conn)
+        }
+    }
+
+    private func respond(to path: String, on conn: NWConnection) {
+        var status = "200 OK"
+        var contentType = "application/octet-stream"
+        var body = Data()
+
+        if path == "/\(serverId).plist" {
+            contentType = "text/xml"
+            body = manifestData ?? Data()
+        } else if path == "/\(serverId).ipa" {
+            contentType = "application/octet-stream"
+            if let url = ipaURL, let d = try? Data(contentsOf: url) {
+                body = d
+            } else {
+                status = "404 Not Found"
+            }
+        } else if path == "/icon57.png" {
+            contentType = "image/png"
+            body = makeIcon(size: 57)
+        } else if path == "/icon512.png" {
+            contentType = "image/png"
+            body = makeIcon(size: 512)
+        } else {
+            status = "404 Not Found"
+        }
+
+        var header = "HTTP/1.1 \(status)\r\n"
+        header += "Content-Type: \(contentType)\r\n"
+        header += "Content-Length: \(body.count)\r\n"
+        header += "Connection: close\r\n\r\n"
+        var resp = Data(header.utf8)
+        resp.append(body)
+        conn.send(content: resp, completion: .contentProcessed { _ in
+            conn.cancel()
+        })
+    }
+
+    private func makeIcon(size: CGFloat) -> Data {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        let img = renderer.image { ctx in
+            UIColor.systemBlue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        }
+        return img.pngData() ?? Data()
+    }
+
+    public func installTriggerURL(plistURL: URL) -> URL? {
+        var comps = URLComponents(string: "itms-services://")
+        comps?.queryItems = [
+            URLQueryItem(name: "action", value: "download-manifest"),
+            URLQueryItem(name: "url", value: plistURL.absoluteString),
+        ]
+        // itms-services 需要手動構造
+        let urlStr = "itms-services://?action=download-manifest&url=\(plistURL.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        return URL(string: urlStr)
+    }
+}
+
+public enum PlistError: Error {
+    case serverFailed(String)
+}
