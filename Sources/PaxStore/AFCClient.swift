@@ -87,11 +87,11 @@ public class AFCClient {
         // 如果需要 SSL，做 SecureTransport 握手（與 LockdownClient 相同寫法）
         if useSSL {
             guard let id = identity else { throw AFCError.tlsFailed("無客戶端身份") }
-            try upgradeToTLS(identity: id)
+            try upgradeToTLS(identity: id, port: port)
         }
     }
     
-    private func upgradeToTLS(identity: SecIdentity) throws {
+    private func upgradeToTLS(identity: SecIdentity, port: UInt16) throws {
         guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
             throw AFCError.tlsFailed("SSLContext 創建失敗")
         }
@@ -113,6 +113,11 @@ public class AFCClient {
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetProtocolVersionMax: \(status)") }
         status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
         guard status == errSecSuccess else { throw AFCError.tlsFailed("SSLSetSessionOption: \(status)") }
+        // 唯一 PeerID：防止 SecureTransport 按 peer 緩存 session，導致多次握手後拿錯 session（對照 KonnectMac）
+        let peerID = "afc-\(port)-\(UUID().uuidString)"
+        _ = peerID.withCString { ptr in
+            SSLSetPeerID(ctx, ptr, peerID.utf8.count)
+        }
         repeat {
             status = SSLHandshake(ctx)
             if status == Self.errServerAuthCompleted {
