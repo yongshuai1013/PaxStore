@@ -57,6 +57,10 @@ public class AFCClient {
     
     /// 連接到 AFC 服務端口
     public func connect(port: UInt16, useSSL: Bool, identity: SecIdentity? = nil) async throws {
+        // 給 afcd 1 秒啟動時間（懷疑 StartService 返回後服務還沒 ready）
+        if !useSSL {
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
         self.useSSL = useSSL
         
         // 創建 TCP socket
