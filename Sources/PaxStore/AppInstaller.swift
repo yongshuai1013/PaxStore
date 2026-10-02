@@ -28,35 +28,34 @@ public class AppInstaller {
         // 4. 上傳 IPA (經 AFC)
         progress("上傳 IPA...", 20)
         let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-        progress("AFC 端口=\(afcPort) SSL=\(afcSSL)", 20)
+        // 動態服務端口不一定走 VPN 回環：10.7.0.1 通常只轉發 62078，
+        // 先找一個 TCP 真正連得上的地址（127.0.0.1 / Wi-Fi IP 直連）
+        guard let afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort) else {
+            throw InstallerError.serviceUnreachable("AFC", afcPort)
+        }
+        progress("AFC 服務地址=\(afcHost):\(afcPort) SSL=\(afcSSL)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
-        // 先按設備要求的 SSL 上傳；若失敗（TLS 被掐等），降級明文重試一次
-        var uploadError: Error?
-        for attemptSSL in [afcSSL, false] {
-            let afc = AFCClient(host: host)
-            do {
-                try await afc.connect(port: afcPort, useSSL: attemptSSL, identity: attemptSSL ? lockdown.identity : nil)
-                try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
-                    let pct = total > 0 ? Int(sent * 60 / total) : 0
-                    progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
-                }
-                afc.disconnect()
-                uploadError = nil
-                break
-            } catch {
-                uploadError = error
-                progress("AFC \(attemptSSL ? "SSL" : "明文")失敗(\(error))，換路重試...", 20)
-                afc.disconnect()
+        // 按設備要求的 SSL 設置連一次；失敗直接報真實錯誤，不再隱藏自動降級
+        let afc = AFCClient(host: afcHost)
+        do {
+            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? lockdown.identity : nil)
+            try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+                let pct = total > 0 ? Int(sent * 60 / total) : 0
+                progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
+        } catch {
+            afc.disconnect()
+            throw error
         }
-        if let e = uploadError { throw e }
+        afc.disconnect()
         progress("上傳完成", 80)
         
         // 5. 經 installation_proxy 安裝
         progress("開始安裝...", 82)
-        let proxy = InstallationProxy(lockdown: lockdown, host: host)
-        try await proxy.connect()
+        let proxy = InstallationProxy(lockdown: lockdown)
+        let proxyHost = try await proxy.connect()
+        progress("安裝服務地址=\(proxyHost)", 82)
         defer { proxy.disconnect() }
         try await proxy.install(packagePath: stagedPath) { percent in
             progress("安裝中... \(percent)%", 82 + percent * 18 / 100)
@@ -83,6 +82,7 @@ public class AppInstaller {
 public enum InstallerError: Error, LocalizedError {
     case vpnNotConnected
     case noPairingFile
+    case serviceUnreachable(String, UInt16)
     
     public var errorDescription: String? {
         switch self {
@@ -90,6 +90,9 @@ public enum InstallerError: Error, LocalizedError {
             return "VPN 未連接，請確認外置 VPN 已啟動並加好 10.7.0.1/32 路由"
         case .noPairingFile:
             return "找不到配對檔，請先到配對檔管理導入"
+        case .serviceUnreachable(let name, let port):
+            return "\(name) 服務端口 \(port) 連不上（已試 127.0.0.1、Wi-Fi IP、VPN 地址）"
         }
     }
 }
+

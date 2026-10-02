@@ -4,17 +4,20 @@ import Network
 /// installation_proxy 服務客戶端
 public class InstallationProxy {
     private let lockdown: LockdownClient
-    private let host: String
     private var serviceConnection: NWConnection?
     
-    public init(lockdown: LockdownClient, host: String = "10.7.0.1") {
+    public init(lockdown: LockdownClient) {
         self.lockdown = lockdown
-        self.host = host
     }
     
     /// 連接到 installation_proxy 服務
-    public func connect() async throws {
+    /// - Returns: 實際連上的服務地址（供 UI 顯示）
+    public func connect() async throws -> String {
         let (port, sslEnabled) = try await lockdown.startService("com.apple.mobile.installation_proxy")
+        // 動態服務端口不一定走 VPN 回環：先找一個 TCP 真正連得上的地址
+        guard let svcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: port) else {
+            throw InstallationError.serviceUnreachable(port)
+        }
         
         let params: NWParameters
         if sslEnabled {
@@ -33,7 +36,7 @@ public class InstallationProxy {
             params = .tcp
         }
         serviceConnection = NWConnection(
-            host: NWEndpoint.Host(host),
+            host: NWEndpoint.Host(svcHost),
             port: NWEndpoint.Port(rawValue: port)!,
             using: params
         )
@@ -58,6 +61,7 @@ public class InstallationProxy {
             }
             serviceConnection?.start(queue: .global())
         }
+        return svcHost
     }
     
     /// 安裝 IPA（IPA 需先經 AFC 上傳到 /PublicStaging/）
@@ -167,10 +171,14 @@ public class InstallationProxy {
 
 public enum InstallationError: Error, LocalizedError {
     case installFailed(String)
+    case serviceUnreachable(UInt16)
     
     public var errorDescription: String? {
         switch self {
         case .installFailed(let desc): return "安裝失敗: \(desc)"
+        case .serviceUnreachable(let port):
+            return "安裝服務端口 \(port) 連不上（已試 127.0.0.1、Wi-Fi IP、VPN 地址）"
         }
     }
 }
+

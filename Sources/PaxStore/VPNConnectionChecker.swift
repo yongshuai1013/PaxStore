@@ -266,4 +266,43 @@ public class VPNConnectionChecker {
             return false
         }
     }
+
+    /// 為 lockdownd 動態啟動的服務端口（AFC / installation_proxy）找一個 TCP 連得上的地址。
+    ///
+    /// 背景：VPN 回環地址（如 10.7.0.1）通常只轉發 lockdownd 的 62078，
+    /// StartService 返回的動態端口（如 AFC 的 49152）走回環地址連不上，
+    /// 必須用設備本機直連地址（127.0.0.1 / Wi-Fi IP）。並行探測，先通先用。
+    /// - Returns: 連得上的 host；全部不通時回 nil
+    public func resolveServiceHost(port: UInt16, timeout: TimeInterval = 3) async -> String? {
+        var candidates: [String] = []
+        var seen = Set<String>()
+        func add(_ ip: String) {
+            let t = ip.trimmingCharacters(in: .whitespaces)
+            guard !t.isEmpty, !seen.contains(t) else { return }
+            seen.insert(t)
+            candidates.append(t)
+        }
+        // 本機回環最優先：不依賴 Wi-Fi，沙盒無回環限制
+        add("127.0.0.1")
+        // Wi-Fi 直連 IP（服務若只綁 Wi-Fi 接口時需要）
+        if let wifiIP = discoverWiFiIP() { add(wifiIP) }
+        // VPN 回環地址放最後（通常只轉發 62078）
+        add(gatewayHost)
+
+        var winner: String?
+        await withTaskGroup(of: (String, Bool).self) { group in
+            for c in candidates {
+                group.addTask { (c, await self.probe(host: c, port: port, timeout: timeout)) }
+            }
+            for await (ip, ok) in group {
+                if ok {
+                    winner = ip
+                    group.cancelAll()
+                    break
+                }
+            }
+        }
+        return winner
+    }
 }
+
