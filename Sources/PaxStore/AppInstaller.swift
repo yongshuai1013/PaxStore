@@ -18,8 +18,8 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經 Swift AFCClient，走 127.0.0.1；VPN 只轉發 10.7.0.1:62078)
-        progress("上傳 IPA... (Swift/127.0.0.1)", 20)
+        // 3. 上傳 IPA (經 Swift AFCClient，走 Wi-Fi IP；VPN 只轉發 10.7.0.1:62078)
+        progress("上傳 IPA... (Swift/WiFi)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"
         let installPath = "/PublicStaging/\(remoteName)"
@@ -32,8 +32,9 @@ public class AppInstaller {
             throw InstallerError.afcFailed("無法取得配對 identity")
         }
         tmpLockdown.disconnect()
-        // AFC 走 127.0.0.1（VPN 只轉發 10.7.0.1:62078，動態端口不轉）
-        let afc = AFCClient(host: "127.0.0.1")
+        // AFC 走 Wi-Fi IP（診斷證明可通）；VPN 只轉發 10.7.0.1:62078，動態端口不轉，故不用 10.7.0.1
+        let afcHost = VPNConnectionChecker.shared.discoverWiFiIP() ?? "127.0.0.1"
+        let afc = AFCClient(host: afcHost)
         do {
             try await afc.connect(port: afcPort, useSSL: true, identity: afcIdentity)
             try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
