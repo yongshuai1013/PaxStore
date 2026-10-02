@@ -111,10 +111,17 @@ struct InstallView: View {
                             Text("安裝中...")
                         }
                     } else {
-                        Text("開始安裝")
+                        Text("開始安裝 (AFC)")
                     }
                 }
                 .disabled(ipaURL == nil || isInstalling || !vpnConnected)
+
+                Button(action: {
+                    Task { await startPlistInstall() }
+                }) {
+                    Text("用 plist 安裝 (免 VPN)")
+                }
+                .disabled(ipaURL == nil || isInstalling)
                 
                 if !progressMessage.isEmpty {
                     HStack {
@@ -206,5 +213,55 @@ struct InstallView: View {
         }
         
         isInstalling = false
+    }
+
+    private func startPlistInstall() async {
+        guard let ipaURL = ipaURL else { return }
+        isInstalling = true
+        errorMessage = nil
+        progressMessage = "正在啟動本地服務..."
+        defer { isInstalling = false }
+
+        do {
+            let info = try extractAppInfo(from: ipaURL)
+            let plistURL = try PlistInstaller.shared.start(
+                ipaURL: ipaURL,
+                bundleId: info.bundleId,
+                appName: info.name,
+                version: info.version
+            )
+            guard let trigger = PlistInstaller.shared.installTriggerURL(plistURL: plistURL) else {
+                throw PlistError.serverFailed("無法構造安裝鏈接")
+            }
+            progressMessage = "正在打開系統安裝..."
+            await UIApplication.shared.open(trigger)
+            progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
+        } catch {
+            errorMessage = error.localizedDescription
+            progressMessage = ""
+        }
+    }
+
+    private func extractAppInfo(from ipaURL: URL) throws -> (bundleId: String, name: String, version: String) {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-p", ipaURL.path, "Payload/*.app/Info.plist"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        try proc.run()
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard !data.isEmpty,
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let bundleId = plist["CFBundleIdentifier"] as? String else {
+            throw PlistError.serverFailed("無法讀取 IPA 的 Info.plist")
+        }
+        let name = (plist["CFBundleDisplayName"] as? String) ?? (plist["CFBundleName"] as? String) ?? bundleId
+        let version = (plist["CFBundleShortVersionString"] as? String) ?? "1.0"
+        return (bundleId, name, version)
     }
 }
