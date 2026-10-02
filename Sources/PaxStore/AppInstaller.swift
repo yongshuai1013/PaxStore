@@ -18,7 +18,7 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經 Rust idevice-ffi 的 AFC；內部自建 lockdownd，不與 Swift 重疊)
+        // 3. 上傳 IPA (經 Swift AFCClient，走 127.0.0.1；VPN 只轉發 10.7.0.1:62078)
         progress("上傳 IPA... (Swift/127.0.0.1)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"
@@ -45,7 +45,6 @@ public class AppInstaller {
         } catch {
             afc.disconnect()
             throw InstallerError.afcFailed("Swift AFC: \(error)")
-        }
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
