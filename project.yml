@@ -19,6 +19,9 @@ packages:
   CodeSignKit:
     url: https://github.com/mahee96/CodeSignKit.git
     branch: main
+  Minimuxer:
+    url: https://github.com/SideStore/minimuxer.git
+    branch: develop
 
 targets:
   PaxStore:
@@ -31,6 +34,7 @@ targets:
       - package: SideSign
       - package: CodeSignKit
       - package: ZIPFoundation
+      - package: Minimuxer
       - package: swift-nio-ssl
         product: NIOSSL
       - framework: Libraries/IDeviceFFI.xcframework
