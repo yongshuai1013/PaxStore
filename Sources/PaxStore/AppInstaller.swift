@@ -85,6 +85,14 @@ public class AppInstaller {
         }
         defer { lockdown.disconnect() }
         lines.append("lockdownd OK (\(gatewayHost):62078)")
+        do {
+            let loLockdown = LockdownClient(host: "127.0.0.1")
+            try await loLockdown.connect(pairingFileURL: pairingURL)
+            loLockdown.disconnect()
+            lines.append("lockdownd OK (127.0.0.1:62078)")
+        } catch {
+            lines.append("lockdownd 127.0.0.1:62078 失敗: \(error)")
+        }
         var hosts = ["127.0.0.1"]
         if let wifiIP = VPNConnectionChecker.shared.discoverWiFiIP(), wifiIP != "127.0.0.1", !hosts.contains(wifiIP) {
             hosts.append(wifiIP)
