@@ -34,8 +34,8 @@ public class AppInstaller {
         let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
         var uploadErrors: [String] = []
         var uploaded = false
-        // 測試：只試明文，跳過 TLS（看 127.0.0.1 明文到底行不行）
-        for wantSSL in [false] {
+        // 先 TLS 後明文（TLS 有唯一 PeerID 修復）
+        for wantSSL in [true, false] {
             let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
             // 用 127.0.0.1：10.7.0.1 的 VPN 只轉發 62078，動態端口過去是黑洞會卡死；
             // 127.0.0.1 有真正的 afcd，TLS -9806 是明確的協議錯誤而非卡死
