@@ -231,10 +231,14 @@ struct SigningFlowView: View {
             
             // 重打包為 IPA（ZIPFoundation 手動打包，指定壓縮）
             log("重打包 IPA...")
+            let payloadSize = directorySize(payload)
+            log("Payload 未壓縮大小: \(String(format: "%.1f", Double(payloadSize) / 1024 / 1024)) MB")
             let signedIPA = FileManager.default.temporaryDirectory
                 .appendingPathComponent("\(appURL.deletingPathExtension().lastPathComponent)-signed.ipa")
             try? FileManager.default.removeItem(at: signedIPA)
             try zipPayload(payload, to: signedIPA)
+            let ipaSize = (try? FileManager.default.attributesOfItem(atPath: signedIPA.path)[.size] as? Int64) ?? 0
+            log("簽名後 IPA 大小: \(String(format: "%.1f", Double(ipaSize) / 1024 / 1024)) MB")
             signedIPAURL = signedIPA
             log("完成: \(signedIPA.lastPathComponent)")
             
@@ -279,6 +283,16 @@ struct SigningFlowView: View {
     
     private func unzip(_ src: URL, to dest: URL) async throws {
         try FileManager.default.unzipItem(at: src, to: dest)
+    }
+
+    private func directorySize(_ url: URL) -> Int64 {
+        var total: Int64 = 0
+        if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) {
+            for case let f as URL in enumerator {
+                total += (try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap(Int64.init) ?? 0
+            }
+        }
+        return total
     }
 
     private func zipPayload(_ payload: URL, to dest: URL) throws {
