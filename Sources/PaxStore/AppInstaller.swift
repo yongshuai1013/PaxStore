@@ -34,18 +34,13 @@ public class AppInstaller {
         let stagedPath = "PublicStaging/\(remoteName)"  // 對照 idevice：無前導斜線
         var uploadErrors: [String] = []
         var uploaded = false
-        // 設備要求 SSL 時：先明文（fresh port），再 TLS（fresh port）；否則只試明文
-        for wantSSL in [false, true] {
+        // 設備要求 SSL 時：先 TLS（fresh port），再明文（fresh port）；否則只試明文
+        //（先明文會在 10.7.0.1 上卡住走不到 TLS）
+        for wantSSL in [true, false] {
             let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-            // 測試：優先用 Wi-Fi IP（不用 127.0.0.1），看 TLS -9806 是否與回環有關
-            // 動態服務端口不一定走 VPN 回環；10.7.0.1 只轉發 62078，走那邊是黑洞
-            var afcHost: String? = nil
-            if let wifiIP = VPNConnectionChecker.shared.discoverWiFiIP() {
-                afcHost = wifiIP
-            } else {
-                afcHost = await VPNConnectionChecker.shared.resolveServiceHost(port: afcPort)
-            }
-            guard let afcHost = afcHost else {
+            // 用跟 lockdown 相同的 gatewayHost（10.7.0.1）：用戶實測只有它不報錯
+            let afcHost = host
+            guard !afcHost.isEmpty else {
                 uploadErrors.append("服務端口 \(afcPort) 不可達")
                 progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
                 continue
