@@ -118,6 +118,17 @@ public class PlistInstaller {
         }
     }
 
+    public var pendingItmsURL: String = ""
+
+    public func installPageURL() -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "http"
+        comps.host = hostIP
+        comps.port = port
+        comps.path = "/install"
+        return comps.url
+    }
+
     private func respond(to path: String, on conn: NWConnection) {
         var status = "200 OK"
         var contentType = "application/octet-stream"
@@ -139,6 +150,17 @@ public class PlistInstaller {
         } else if path == "/icon512.png" {
             contentType = "image/png"
             body = makeIcon(size: 512)
+        } else if path == "/install" {
+            contentType = "text/html"
+            let html = """
+            <html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+            <body style="font-family:sans-serif;text-align:center;padding-top:60px">
+            <h2>正在跳轉到安裝...</h2>
+            <p>如果沒有自動跳轉，<a href="\(pendingItmsURL)">點此安裝</a></p>
+            <script>window.location="\(pendingItmsURL)";</script>
+            </body></html>
+            """
+            body = Data(html.utf8)
         } else {
             status = "404 Not Found"
         }

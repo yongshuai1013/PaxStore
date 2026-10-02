@@ -264,8 +264,14 @@ struct InstallView: View {
             progressMessage = "正在打開系統安裝..."
             debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
             debugIpaURL = "http://\(PlistInstaller.shared.hostIP):\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
-            await UIApplication.shared.open(trigger)
-            progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
+            // iOS 不允許 App 直接開 itms-services，經由 Safari 跳轉頁中轉
+            PlistInstaller.shared.pendingItmsURL = trigger.absoluteString
+            if let installPage = PlistInstaller.shared.installPageURL() {
+                await UIApplication.shared.open(installPage)
+            } else {
+                await UIApplication.shared.open(trigger)
+            }
+            progressMessage = "已在 Safari 打開跳轉頁，請點安裝（保持 PaxStore 前台運行）"
         } catch {
             errorMessage = error.localizedDescription
             progressMessage = ""
