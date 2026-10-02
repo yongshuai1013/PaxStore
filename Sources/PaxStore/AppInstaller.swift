@@ -82,6 +82,53 @@ public class AppInstaller {
         progress("完成", 100)
     }
     
+
+    /// 診斷 AFC：對每個候選 host 試 TLS 和明文，返回報告（不傳文件，只建連接）
+    public func diagnoseAFC() async -> String {
+        var lines: [String] = []
+        let vpnOK = await VPNConnectionChecker.shared.checkConnection()
+        guard vpnOK else { return "VPN 未連接" }
+        let gatewayHost = VPNConnectionChecker.shared.gatewayHost
+        guard let pairingURL = findPairingFile() else { return "找不到配對檔" }
+        let lockdown = LockdownClient(host: gatewayHost)
+        do {
+            try await lockdown.connect(pairingFileURL: pairingURL)
+        } catch {
+            return "lockdownd 連接失敗: \\(error)"
+        }
+        defer { lockdown.disconnect() }
+        lines.append("lockdownd OK (\\(gatewayHost):62078)")
+        var hosts = ["127.0.0.1"]
+        if let wifiIP = VPNConnectionChecker.shared.discoverWiFiIP(), wifiIP != "127.0.0.1", !hosts.contains(wifiIP) {
+            hosts.append(wifiIP)
+        }
+        if gatewayHost != "127.0.0.1", !hosts.contains(gatewayHost) {
+            hosts.append(gatewayHost)
+        }
+        for host in hosts {
+            lines.append("— \\(host) —")
+            for wantSSL in [true, false] {
+                let label = wantSSL ? "TLS" : "明文"
+                do {
+                    let (port, sslEnabled) = try await lockdown.startService("com.apple.afc")
+                    let useSSL = wantSSL && sslEnabled
+                    let actualLabel = useSSL ? "TLS" : "明文"
+                    let afc = AFCClient(host: host)
+                    do {
+                        try await afc.connect(port: port, useSSL: useSSL, identity: useSSL ? lockdown.identity : nil)
+                        afc.disconnect()
+                        lines.append("  \\(actualLabel) \\(host):\\(port): 連接成功")
+                    } catch {
+                        lines.append("  \\(actualLabel) \\(host):\\(port): \\(error)")
+                    }
+                } catch {
+                    lines.append("  \\(label) StartService 失敗: \\(error)")
+                }
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private func findPairingFile() -> URL? {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         let dir = docs.appendingPathComponent("PairingFiles")
