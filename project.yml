@@ -37,6 +37,7 @@ targets:
         embed: false
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.paxstore.app
+      SWIFT_OBJC_BRIDGING_HEADER: Sources/PaxStore/PaxStore-Bridging-Header.h
       PRODUCT_NAME: PaxStore
     info:
       path: Resources/Info.plist
