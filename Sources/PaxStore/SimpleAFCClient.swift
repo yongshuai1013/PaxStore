@@ -21,22 +21,19 @@ public class SimpleAFCClient {
         addLog("TCP+TLS 連接 \(host):\(port)")
         
         let tlsOptions = NWProtocolTLS.Options()
+        let secOpts = tlsOptions.securityProtocolOptions
         // 設置客戶端證書
-        sec_protocol_options_set_local_identity(
-            tlsOptions.securityProtocolOptions,
-            sec_identity_create(identity)!
-        )
+        let secId = sec_identity_create(identity as CFTypeRef)
+        sec_protocol_options_set_local_identity(secOpts, secId)
         // 設置 SNI
-        sec_protocol_options_set_tls_server_name(
-            tlsOptions.securityProtocolOptions,
-            "Device"
-        )
+        "Device".withCString { cstr in
+            sec_protocol_options_set_tls_server_name(secOpts, cstr)
+        }
         // 不驗證服務器證書（afcd 用自簽名）
-        sec_protocol_options_set_verify_block(
-            tlsOptions.securityProtocolOptions,
-            { _, _, complete in complete(true) },
-            DispatchQueue.global()
-        )
+        let verifyBlock: @convention(block) (sec_protocol_metadata_t, sec_trust_t, @escaping (Bool) -> Void) -> Void = { _, _, complete in
+            complete(true)
+        }
+        sec_protocol_options_set_verify_block(secOpts, verifyBlock, DispatchQueue.global())
         
         let params = NWParameters(tls: tlsOptions)
         params.includePeerToPeer = true
