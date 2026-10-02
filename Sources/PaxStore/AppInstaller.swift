@@ -28,7 +28,8 @@ public class AppInstaller {
         // 4. 上傳 IPA (經 Rust idevice-ffi 的 AFC)
         progress("上傳 IPA... (Rust)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
-        let stagedPath = "/PublicStaging/\(remoteName)"
+        let stagedPath = "PublicStaging/\(remoteName)"  // AFC: 無前導斜線
+        let installPath = "/PublicStaging/\(remoteName)"  // installation_proxy: 絕對路徑
         let rustAfc = RustAFCClient()
         do {
             try await rustAfc.connect(pairingFileURL: pairingURL, host: host)
@@ -49,7 +50,7 @@ public class AppInstaller {
         let proxyHost = try await proxy.connect()
         progress("安裝服務地址=\(proxyHost)", 82)
         defer { proxy.disconnect() }
-        try await proxy.install(packagePath: stagedPath) { percent in
+        try await proxy.install(packagePath: installPath) { percent in
             progress("安裝中... \(percent)%", 82 + percent * 18 / 100)
         }
         
