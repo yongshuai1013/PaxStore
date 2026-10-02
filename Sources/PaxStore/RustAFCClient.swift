@@ -16,8 +16,9 @@ public class RustAFCClient {
     private func checkError(_ err: OpaquePointer?, _ context: String) throws {
         guard let e = err else { return } // NULL = 成功
         // IdeviceFfiError { code: i32, sub_code: i32, message: *const c_char }
-        let code = e.load(as: Int32.self)
-        let msgPtr = e.load(fromByteOffset: 8, as: UnsafePointer<CChar>?.self)
+        let raw = UnsafeRawPointer(e)
+        let code = raw.load(as: Int32.self)
+        let msgPtr = raw.load(fromByteOffset: 8, as: UnsafePointer<CChar>?.self)
         let msg = msgPtr.map { String(cString: $0) } ?? "unknown"
         idevice_error_free(e)
         throw RustAFCError.ffiFailed("\(context): [\(code)] \(msg)")
