@@ -86,6 +86,7 @@ public class AppInstaller {
     /// 診斷 AFC：對每個候選 host 試 TLS 和明文，返回報告（不傳文件，只建連接）
     public func diagnoseAFC() async -> String {
         var lines: [String] = []
+        lines.append("AFC 引擎: SwiftNIO/BoringSSL (build be849008+)")
         let vpnOK = await VPNConnectionChecker.shared.checkConnection()
         guard vpnOK else { return "VPN 未連接" }
         let gatewayHost = VPNConnectionChecker.shared.gatewayHost
