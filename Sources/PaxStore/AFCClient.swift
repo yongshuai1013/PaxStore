@@ -197,8 +197,9 @@ public class AFCClient {
     }
     
     private func nextNum() -> UInt64 {
+        let num = packetNum
         packetNum += 1
-        return packetNum
+        return num
     }
     
     /// 發送 AFC 包並接收回應
