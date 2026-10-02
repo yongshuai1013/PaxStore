@@ -38,8 +38,9 @@ public class AppInstaller {
         //（先明文會在 10.7.0.1 上卡住走不到 TLS）
         for wantSSL in [true, false] {
             let (afcPort, afcSSL) = try await lockdown.startService("com.apple.afc")
-            // 用跟 lockdown 相同的 gatewayHost（10.7.0.1）：用戶實測只有它不報錯
-            let afcHost = host
+            // 用 127.0.0.1：10.7.0.1 的 VPN 只轉發 62078，動態端口過去是黑洞會卡死；
+            // 127.0.0.1 有真正的 afcd，TLS -9806 是明確的協議錯誤而非卡死
+            let afcHost = "127.0.0.1"
             guard !afcHost.isEmpty else {
                 uploadErrors.append("服務端口 \(afcPort) 不可達")
                 progress("AFC 服務端口 \(afcPort) 不可達，換新端口重試…", 20)
