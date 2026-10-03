@@ -28,7 +28,7 @@ public class PlistInstaller {
         }
         let tlsOptions = NWProtocolTLS.Options()
         let secId = sec_identity_create(identity)!
-        sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId, true)
+        sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId)
         return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
     }
 
