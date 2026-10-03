@@ -504,6 +504,11 @@ public class LockdownClient {
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetConnection: \(status)") }
         status = SSLSetIOFuncs(ctx, Self.sslReadFunc, Self.sslWriteFunc)
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetIOFuncs: \(status)") }
+        // 強制 TLS 1.2（iOS 15 lockdownd 不認 TLS 1.3 的 ClientHello）
+        status = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetProtocolVersionMin: \(status)") }
+        status = SSLSetProtocolVersionMax(ctx, .tlsProtocol12)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetProtocolVersionMax: \(status)") }
         // 客戶端身份（證書+私鑰）
         status = SSLSetCertificate(ctx, [identity] as CFArray)
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetCertificate: \(status)") }
