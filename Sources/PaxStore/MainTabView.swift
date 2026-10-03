@@ -158,6 +158,9 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section(header: Text("工具")) {
+                NavigationLink("檔案管理", destination: FileManagerRootView())
+            }
         }
         .navigationTitle("設定")
     }
