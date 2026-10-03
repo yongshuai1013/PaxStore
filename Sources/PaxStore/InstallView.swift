@@ -263,7 +263,7 @@ struct InstallView: View {
             }
             progressMessage = "正在打開系統安裝..."
             debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
-            debugIpaURL = "http://\(PlistInstaller.shared.hostIP):\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
+            debugIpaURL = "https://ios-sign.duckdns.org:\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
             await UIApplication.shared.open(trigger)
             progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
         } catch {

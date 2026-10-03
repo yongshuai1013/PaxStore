@@ -1,27 +1,7 @@
 import Foundation
 import Network
 import UIKit
-
-func getWiFiIPAddress() -> String? {
-    var ifaddr: UnsafeMutablePointer<ifaddrs>?
-    guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
-    defer { freeifaddrs(ifaddr) }
-    for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
-        let flags = Int32(ptr.pointee.ifa_flags)
-        let addr = ptr.pointee.ifa_addr.pointee
-        if (flags & (IFF_UP | IFF_RUNNING | IFF_LOOPBACK)) == (IFF_UP | IFF_RUNNING),
-           addr.sa_family == UInt8(AF_INET) {
-            let name = String(cString: ptr.pointee.ifa_name)
-            if name == "en0" {
-                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(ptr.pointee.ifa_addr, socklen_t(addr.sa_len), &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST) == 0 {
-                    return String(cString: hostname)
-                }
-            }
-        }
-    }
-    return nil
-}
+import Security
 
 public class PlistInstaller {
     public static let shared = PlistInstaller()
@@ -32,17 +12,32 @@ public class PlistInstaller {
     private var manifestData: Data?
     public let serverId = UUID().uuidString
     public private(set) var port: Int = 0
+    public let domain = "ios-sign.duckdns.org"
 
-    public var hostIP: String = "127.0.0.1"
+    private func tlsParameters() -> NWParameters? {
+        guard let p12URL = Bundle.main.url(forResource: "ios-sign", withExtension: "p12"),
+              let p12Data = try? Data(contentsOf: p12URL) else {
+            return nil
+        }
+        let options = [kSecImportExportPassphrase as String: "paxstore"]
+        var items: CFArray?
+        guard SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items) == errSecSuccess,
+              let dicts = items as? [[String: Any]],
+              let identity = dicts.first?[kSecImportItemIdentity as String] as! SecIdentity? else {
+            return nil
+        }
+        let tlsOptions = NWProtocolTLS.Options()
+        let secId = sec_identity_create(identity)!
+        sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId, true)
+        return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+    }
 
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
         self.ipaURL = ipaURL
-        if let ip = getWiFiIPAddress() {
-            self.hostIP = ip
-        }
-        self.manifestData = makeManifest(bundleId: bundleId, appName: appName, version: version)
 
-        let params = NWParameters.tcp
+        guard let params = tlsParameters() else {
+            throw PlistError.serverFailed("無法載入 TLS 證書")
+        }
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: 0)
         self.listener = listener
@@ -68,12 +63,11 @@ public class PlistInstaller {
         self.port = actualPort
         guard actualPort > 0 else { throw PlistError.serverFailed("無法綁定端口") }
 
-        // 更新 manifest 中的端口
         self.manifestData = makeManifest(bundleId: bundleId, appName: appName, version: version)
 
         var comps = URLComponents()
-        comps.scheme = "http"
-        comps.host = hostIP
+        comps.scheme = "https"
+        comps.host = domain
         comps.port = actualPort
         comps.path = "/\(serverId).plist"
         guard let url = comps.url else { throw PlistError.serverFailed("無法構造 plist URL") }
@@ -86,7 +80,7 @@ public class PlistInstaller {
     }
 
     private func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://\(hostIP):\(port)"
+        let base = "https://\(domain):\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
@@ -116,17 +110,6 @@ public class PlistInstaller {
             let path = req.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
             self.respond(to: path, on: conn)
         }
-    }
-
-    public var pendingItmsURL: String = ""
-
-    public func installPageURL() -> URL? {
-        var comps = URLComponents()
-        comps.scheme = "http"
-        comps.host = hostIP
-        comps.port = port
-        comps.path = "/install"
-        return comps.url
     }
 
     private func respond(to path: String, on conn: NWConnection) {
@@ -188,6 +171,17 @@ public class PlistInstaller {
         return img.pngData() ?? Data()
     }
 
+    public var pendingItmsURL: String = ""
+
+    public func installPageURL() -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "https"
+        comps.host = domain
+        comps.port = port
+        comps.path = "/install"
+        return comps.url
+    }
+
     public func installTriggerURL(plistURL: URL) -> URL? {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
@@ -197,7 +191,7 @@ public class PlistInstaller {
     }
 
     public func externalPlistURL(bundleId: String, appName: String, version: String) -> URL? {
-        let ipaURLStr = "http://\(hostIP):\(port)/\(serverId).ipa"
+        let ipaURLStr = "https://\(domain):\(port)/\(serverId).ipa"
         let base = "https://api.palera.in/genPlist?bundleid=\(bundleId)&name=\(appName)&version=\(version)&fetchurl=\(ipaURLStr)"
         guard let encoded = base.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
