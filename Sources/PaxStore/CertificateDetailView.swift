@@ -10,6 +10,8 @@ struct CertificateDetailView: View {
     
     @State private var showPrivateKey = false
     @State private var privateKeyData: Data?
+    @State private var exportURL: URL?
+    @State private var showShare = false
     
     var body: some View {
         List {
@@ -134,6 +136,16 @@ struct CertificateDetailView: View {
             }
         }
         .navigationTitle("Certificate Details")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("導出") { exportCertificate() }
+            }
+        }
+        .sheet(isPresented: $showShare) {
+            if let url = exportURL {
+                ShareSheet(activityItems: [url])
+            }
+        }
         .onAppear {
             if hasPrivateKey {
                 privateKeyData = PaxSigningService.shared.loadActiveCertificate()?.privateKey
@@ -141,6 +153,21 @@ struct CertificateDetailView: View {
         }
     }
     
+    // MARK: - Export
+
+    private func exportCertificate() {
+        guard let der = cert.data else { return }
+        let filename = "certificate-\(cert.serialNumberHex).cer"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        do {
+            try der.write(to: url)
+            exportURL = url
+            showShare = true
+        } catch {
+            // 寫入失敗就不彈
+        }
+    }
+
     // MARK: - Helpers
     
     private func formatDateTime(_ date: Date) -> String {
@@ -336,4 +363,13 @@ private struct CopyableRow: View {
         }
         .padding(.vertical, 2)
     }
+}
+
+/// 分享表單（iOS 15 兼容）
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
