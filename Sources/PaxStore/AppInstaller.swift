@@ -18,33 +18,24 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經 Swift AFCClient；lockdownd 走 10.7.0.1，AFC 走 127.0.0.1 直連)
-        progress("上傳 IPA... (Swift/直連)", 20)
+        // 3. 上傳 IPA (經 Rust idevice-ffi，與 SideStore 同款)
+        progress("上傳 IPA... (Rust)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"
         let installPath = "/PublicStaging/\(remoteName)"
-        // 先拿 AFC 端口（經 10.7.0.1 lockdownd）
-        let tmpLockdown = LockdownClient(host: host)
-        try await tmpLockdown.connect(pairingFileURL: pairingURL)
-        let (afcPort, afcSSL) = try await tmpLockdown.startService("com.apple.afc")
-        guard let afcIdentity = tmpLockdown.identity else {
-            tmpLockdown.disconnect()
-            throw InstallerError.afcFailed("無法取得配對 identity")
-        }
-        tmpLockdown.disconnect()
-        // AFC 走 127.0.0.1 直連，不經過 VPN/代理（10-02 驗證可傳到 20%）
-        let afc = AFCClient(host: "127.0.0.1")
+        // Rust 庫要求 lockdownd 和 AFC 同一個 host；EMProxy 開著時都是 10.7.0.1
+        let rustAfc = RustAFCClient()
         do {
-            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? afcIdentity : nil)
-            try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+            try await rustAfc.connect(pairingFileURL: pairingURL, host: "10.7.0.1")
+            try await rustAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
                 let pct = total > 0 ? Int(sent * 60 / total) : 0
                 progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
-            afc.disconnect()
+            rustAfc.disconnect()
             progress("上傳完成", 80)
         } catch {
-            afc.disconnect()
-            throw InstallerError.afcFailed("Swift AFC: \(error)")
+            rustAfc.disconnect()
+            throw InstallerError.afcFailed("Rust AFC: \(error)")
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
