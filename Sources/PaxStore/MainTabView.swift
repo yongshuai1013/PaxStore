@@ -74,7 +74,7 @@ struct SourcesView: View {
     var body: some View {
         Form {
             Section(header: Text("已添加的源")) {
-                ForEach(sources, id: \\.self) { url in
+                ForEach(sources, id: \.self) { url in
                     NavigationLink(destination: SourceDetailView(sourceURL: url)) {
                         Text(url).font(.caption).lineLimit(1)
                     }
