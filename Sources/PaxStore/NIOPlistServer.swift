@@ -31,7 +31,7 @@ public class NIOPlistServer {
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
 
-        let channel = try bootstrap.bind(host: "127.0.0.1", port: 0).wait()
+        let channel = try bootstrap.bind(host: "localhost", port: 0).wait()
         self.channel = channel
         if let localAddr = channel.localAddress, let p = localAddr.port {
             self.port = p
@@ -48,7 +48,7 @@ public class NIOPlistServer {
     }
 
     public func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://127.0.0.1:\(port)"
+        let base = "http://localhost:\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
@@ -79,7 +79,7 @@ public class NIOPlistServer {
     public func plistURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "127.0.0.1"
+        comps.host = "localhost"
         comps.port = port
         comps.path = "/\(serverId).plist"
         return comps.url
@@ -88,7 +88,7 @@ public class NIOPlistServer {
     public func installPageURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "127.0.0.1"
+        comps.host = "localhost"
         comps.port = port
         comps.path = "/install"
         return comps.url
