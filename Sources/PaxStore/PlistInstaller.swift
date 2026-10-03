@@ -10,6 +10,7 @@ public class PlistInstaller {
     public var port: Int { nioServer?.port ?? 0 }
 
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
+        AppLogger.shared.log("PlistInstaller.start: bundleId=\(bundleId), ipa=\(ipaURL.lastPathComponent)")
         AudioKeepAlive.shared.start()
         let server = NIOPlistServer()
         server.ipaURL = ipaURL
@@ -19,10 +20,12 @@ public class PlistInstaller {
         guard let url = server.plistURL() else {
             throw PlistError.serverFailed("無法構造 plist URL")
         }
+        AppLogger.shared.log("PlistInstaller.start: plistURL=\(url.absoluteString), port=\(server.port)")
         return url
     }
 
     public func stop() {
+        AppLogger.shared.log("PlistInstaller.stop")
         nioServer?.stop()
         nioServer = nil
         AudioKeepAlive.shared.stop()
