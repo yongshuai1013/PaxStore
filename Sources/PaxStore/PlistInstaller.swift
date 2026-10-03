@@ -16,19 +16,24 @@ public class PlistInstaller {
 
     private let p12Base64 = "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"
 
-    private func tlsParameters() -> NWParameters? {
+    private func tlsParameters() throws -> NWParameters {
         guard let p12Data = Data(base64Encoded: p12Base64) else {
-            return nil
+            throw PlistError.serverFailed("p12 base64 解碼失敗")
         }
         let options = [kSecImportExportPassphrase as String: "paxstore"]
         var items: CFArray?
-        guard SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items) == errSecSuccess,
-              let dicts = items as? [[String: Any]],
-              let identity = dicts.first?[kSecImportItemIdentity as String] as! SecIdentity? else {
-            return nil
+        let status = SecPKCS12Import(p12Data as CFData, options as CFDictionary, &items)
+        guard status == errSecSuccess else {
+            throw PlistError.serverFailed("SecPKCS12Import 失敗: \(status)")
+        }
+        guard let dicts = items as? [[String: Any]],
+              let identity = dicts.first?[kSecImportItemIdentity as String] as? SecIdentity else {
+            throw PlistError.serverFailed("無法提取 SecIdentity")
         }
         let tlsOptions = NWProtocolTLS.Options()
-        let secId = sec_identity_create(identity)!
+        guard let secId = sec_identity_create(identity) else {
+            throw PlistError.serverFailed("sec_identity_create 失敗")
+        }
         sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId)
         return NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
     }
@@ -36,9 +41,7 @@ public class PlistInstaller {
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
         self.ipaURL = ipaURL
 
-        guard let params = tlsParameters() else {
-            throw PlistError.serverFailed("無法載入 TLS 證書")
-        }
+        let params = try tlsParameters()
         params.allowLocalEndpointReuse = true
         let listener = try NWListener(using: params, on: 0)
         self.listener = listener
@@ -206,6 +209,11 @@ public class PlistInstaller {
     }
 }
 
-public enum PlistError: Error {
+public enum PlistError: LocalizedError {
     case serverFailed(String)
+    public var errorDescription: String? {
+        switch self {
+        case .serverFailed(let msg): return msg
+        }
+    }
 }
