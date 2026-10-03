@@ -69,70 +69,32 @@ struct HomeView: View {
 // MARK: - 軟體源
 struct SourcesView: View {
     @State private var sources: [String] = []
-    @State private var newURL = ""
-    @State private var showAdd = false
     private let key = "paxSources"
 
     var body: some View {
-        List {
-            ForEach(sources, id: \.self) { url in
-                HStack {
-                    Text(url).font(.caption).lineLimit(2)
-                    Spacer()
-                    Button(role: .destructive) {
-                        remove(url)
-                    } label: {
-                        Image(systemName: "trash")
+        Form {
+            Section(header: Text("已添加的源")) {
+                ForEach(sources, id: \\.self) { url in
+                    NavigationLink(destination: SourceDetailView(sourceURL: url)) {
+                        Text(url).font(.caption).lineLimit(1)
                     }
                 }
+                .onDelete(perform: delete)
+            }
+            Section {
+                NavigationLink("添加軟體源", destination: AddSourceView(sources: $sources))
             }
         }
         .navigationTitle("軟體源")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { showAdd = true } label: {
-                    Image(systemName: "plus")
-                }
-            }
-        }
-        .sheet(isPresented: $showAdd) {
-            NavigationView {
-                Form {
-                    TextField("https://...", text: $newURL)
-                        .keyboardType(.URL)
-                        .autocapitalization(.none)
-                }
-                .navigationTitle("添加軟體源")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { showAdd = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("添加") {
-                            let u = newURL.trimmingCharacters(in: .whitespaces)
-                            if !u.isEmpty && !sources.contains(u) {
-                                sources.append(u)
-                                save()
-                            }
-                            newURL = ""
-                            showAdd = false
-                        }
-                    }
-                }
-            }
-        }
         .onAppear { load() }
     }
 
     private func load() {
         sources = UserDefaults.standard.stringArray(forKey: key) ?? []
     }
-    private func save() {
+    private func delete(at offsets: IndexSet) {
+        sources.remove(atOffsets: offsets)
         UserDefaults.standard.set(sources, forKey: key)
-    }
-    private func remove(_ url: String) {
-        sources.removeAll { $0 == url }
-        save()
     }
 }
 
