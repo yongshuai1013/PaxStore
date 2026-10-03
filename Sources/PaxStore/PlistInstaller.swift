@@ -20,7 +20,7 @@ public class PlistInstaller {
         guard let url = server.plistURL() else {
             throw PlistError.serverFailed("無法構造 plist URL")
         }
-        AppLogger.shared.log("PlistInstaller.start: plistURL=\(url.absoluteString), port=\(server.port)")
+        AppLogger.shared.log("PlistInstaller.start: plistURL=\(url.absoluteString), port=\(server.port), host=\(server.externalHost)")
         return url
     }
 
