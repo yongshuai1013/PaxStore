@@ -112,9 +112,11 @@ struct InstallView: View {
                 Button("檢查更新") {
                     updateChecker.check()
                 }
-                if updateChecker.updateAvailable {
-                    Text("發現新版本: \(updateChecker.latestVersion)")
-                        .foregroundColor(.green)
+                .disabled(updateChecker.isChecking)
+                if !updateChecker.statusMessage.isEmpty {
+                    Text(updateChecker.statusMessage)
+                        .font(.caption)
+                        .foregroundColor(updateChecker.updateAvailable ? .green : .secondary)
                 }
             }
             
@@ -213,6 +215,19 @@ struct InstallView: View {
                 isPickingIPA = false
             } onCancel: {
                 isPickingIPA = false
+            }
+        }
+        .sheet(isPresented: $showingLog) {
+            NavigationView {
+                ScrollView {
+                    Text(logContent)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding()
+                }
+                .navigationTitle("AFC 日誌")
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarItems(trailing: Button("關閉") { showingLog = false })
             }
         }
     }
