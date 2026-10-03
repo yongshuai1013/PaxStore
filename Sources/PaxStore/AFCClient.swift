@@ -77,6 +77,7 @@ public class AFCClient {
     }
     
     public func connect(port: UInt16, useSSL: Bool, identity: SecIdentity? = nil) async throws {
+        Self.afcLog("CONNECT \(host):\(port) ssl=\(useSSL)")
         if !useSSL {
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
