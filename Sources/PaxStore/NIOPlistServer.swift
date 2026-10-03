@@ -48,7 +48,7 @@ public class NIOPlistServer {
     }
 
     public func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://localhost:\(port)"
+        let base = "http://127.0.0.1:\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
@@ -79,7 +79,7 @@ public class NIOPlistServer {
     public func plistURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "localhost"
+        comps.host = "127.0.0.1"
         comps.port = port
         comps.path = "/\(serverId).plist"
         return comps.url
@@ -88,7 +88,7 @@ public class NIOPlistServer {
     public func installPageURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "localhost"
+        comps.host = "127.0.0.1"
         comps.port = port
         comps.path = "/install"
         return comps.url
