@@ -12,6 +12,7 @@ struct CertificateDetailView: View {
     @State private var privateKeyData: Data?
     @State private var exportURL: URL?
     @State private var showShare = false
+    @State private var exportError: String?
     
     var body: some View {
         List {
@@ -146,6 +147,14 @@ struct CertificateDetailView: View {
                 ShareSheet(url: url)
             }
         }
+        .alert("導出失敗", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("確定", role: .cancel) { }
+        } message: {
+            Text(exportError ?? "")
+        }
         .onAppear {
             if hasPrivateKey {
                 privateKeyData = PaxSigningService.shared.loadActiveCertificate()?.privateKey
@@ -156,7 +165,11 @@ struct CertificateDetailView: View {
     // MARK: - Export
 
     private func exportCertificate() {
-        guard let der = cert.data else { return }
+        exportError = nil
+        guard let der = cert.data, !der.isEmpty else {
+            exportError = "證書數據為空，無法導出"
+            return
+        }
         let filename = "certificate-\(cert.serialNumberHex).cer"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
         do {
@@ -164,7 +177,7 @@ struct CertificateDetailView: View {
             exportURL = url
             showShare = true
         } catch {
-            // 寫入失敗就不彈
+            exportError = "寫入失敗：\(error.localizedDescription)"
         }
     }
 
