@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Network)
+import Network
+#endif
 import NIO
 import NIOHTTP1
 import UIKit
@@ -7,6 +10,33 @@ public class NIOPlistServer {
     private var group: EventLoopGroup?
     private var channel: Channel?
     public private(set) var port: Int = 0
+
+    /// Wi-Fi IP（仿 GCDWebServer 的 primaryIPAddress），拿不到則回 127.0.0.1
+    public var wifiIPAddress: String {
+        var addr: String?
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return "127.0.0.1" }
+        defer { freeifaddrs(ifaddr) }
+        for ptr in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(ptr.pointee.ifa_flags)
+            let name = String(cString: ptr.pointee.ifa_name)
+            // en0 = Wi-Fi，只取 IPv4
+            if name == "en0", (flags & (IFF_UP|IFF_RUNNING|IFF_LOOPBACK)) == (IFF_UP|IFF_RUNNING) {
+                if let sa = ptr.pointee.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) {
+                    var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    let len = socklen_t(MemoryLayout<sockaddr_in>.size)
+                    if getnameinfo(sa, len, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        addr = String(cString: host)
+                        break
+                    }
+                }
+            }
+        }
+        return addr ?? "127.0.0.1"
+    }
+
+    /// 對外 URL 用 Wi-Fi IP（仿 GCDWebServer bindToLocalhost=NO 的行為）
+    public var externalHost: String { wifiIPAddress }
 
     public var ipaURL: URL?
     public var manifestData: Data?
@@ -31,7 +61,7 @@ public class NIOPlistServer {
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
 
-        let channel = try bootstrap.bind(host: "127.0.0.1", port: 0).wait()
+        let channel = try bootstrap.bind(host: "0.0.0.0", port: 0).wait()
         self.channel = channel
         if let localAddr = channel.localAddress, let p = localAddr.port {
             self.port = p
@@ -48,7 +78,7 @@ public class NIOPlistServer {
     }
 
     public func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://127.0.0.1:\(port)"
+        let base = "http://\(externalHost):\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
