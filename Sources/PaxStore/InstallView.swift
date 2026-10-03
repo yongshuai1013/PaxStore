@@ -306,9 +306,12 @@ struct InstallView: View {
             progressMessage = "正在打開系統安裝..."
             debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
             debugIpaURL = "http://localhost:\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
+            AppLogger.shared.log("InstallView: itms URL=\(trigger.absoluteString)")
             await UIApplication.shared.open(trigger)
+            AppLogger.shared.log("InstallView: 已打開 itms-services")
             progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
         } catch {
+            AppLogger.shared.log("InstallView: 錯誤 \(error.localizedDescription)")
             errorMessage = error.localizedDescription
             progressMessage = ""
         }
