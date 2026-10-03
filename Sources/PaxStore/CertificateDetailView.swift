@@ -193,8 +193,12 @@ struct CertificateDetailView: View {
 
     private func exportCertificate() {
         exportError = nil
-        guard let der = cert.data, !der.isEmpty else {
-            exportError = "證書數據為空，無法導出"
+        guard let der = cert.data else {
+            exportError = "證書數據為空(nil)，無法導出。該證書可能不是本機創建，Apple 未返回證書內容。"
+            return
+        }
+        guard !der.isEmpty else {
+            exportError = "證書數據為空(0字節)，無法導出"
             return
         }
         let filename = "certificate-\(cert.serialNumberHex).cer"
