@@ -305,7 +305,7 @@ struct InstallView: View {
             }
             progressMessage = "正在打開系統安裝..."
             debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
-            debugIpaURL = "http://127.0.0.1:\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
+            debugIpaURL = PlistInstaller.shared.ipaURLString() ?? ""
             AppLogger.shared.log("InstallView: itms URL=\(trigger.absoluteString)")
             await UIApplication.shared.open(trigger)
             AppLogger.shared.log("InstallView: 已打開 itms-services")
