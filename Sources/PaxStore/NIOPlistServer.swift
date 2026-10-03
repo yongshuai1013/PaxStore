@@ -178,10 +178,11 @@ private class HTTPHandler: ChannelInboundHandler {
             context.write(wrapOutboundOut(.head(head)), promise: nil)
             // 後台線程分塊讀，event loop 上寫
             let channel = context.channel
+            let handler = self
             DispatchQueue.global(qos: .userInitiated).async {
                 guard let handle = try? FileHandle(forReadingFrom: url) else {
                     channel.eventLoop.execute {
-                        context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
+                        context.writeAndFlush(handler.wrapOutboundOut(.end(nil))).whenComplete { _ in
                             context.close(promise: nil)
                         }
                     }
@@ -195,12 +196,12 @@ private class HTTPHandler: ChannelInboundHandler {
                     let buf = channel.allocator.buffer(bytes: data)
                     let p = channel.eventLoop.makePromise(of: Void.self)
                     channel.eventLoop.execute {
-                        context.writeAndFlush(wrapOutboundOut(.body(.byteBuffer(buf))), promise: p)
+                        context.writeAndFlush(handler.wrapOutboundOut(.body(.byteBuffer(buf))), promise: p)
                     }
                     try? p.futureResult.wait()
                 }
                 channel.eventLoop.execute {
-                    context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
+                    context.writeAndFlush(handler.wrapOutboundOut(.end(nil))).whenComplete { _ in
                         context.close(promise: nil)
                     }
                 }
