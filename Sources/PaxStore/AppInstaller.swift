@@ -27,6 +27,19 @@ public class AppInstaller {
         let tmpLockdown = LockdownClient(host: host)
         try await tmpLockdown.connect(pairingFileURL: pairingURL)
         let (afcPort, afcSSL) = try await tmpLockdown.startService("com.apple.afc")
+        // 寫到 AFC 日誌文件
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let url = docs.appendingPathComponent("afc_debug.log")
+            let line = "[AFC] StartService com.apple.afc -> port=\(afcPort) ssl=\(afcSSL)\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: url.path),
+                   let h = try? FileHandle(forWritingTo: url) {
+                    h.seekToEndOfFile(); h.write(data); try? h.close()
+                } else {
+                    try? data.write(to: url)
+                }
+            }
+        }
         guard let afcIdentity = tmpLockdown.identity else {
             tmpLockdown.disconnect()
             throw InstallerError.afcFailed("無法取得配對 identity")
