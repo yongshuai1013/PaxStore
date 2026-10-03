@@ -29,6 +29,8 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - Sources/PaxStore
+    resources:
+      - Sources/PaxStore/Resources/ios-sign.p12
     dependencies:
       - package: SideSign
       - package: CodeSignKit
