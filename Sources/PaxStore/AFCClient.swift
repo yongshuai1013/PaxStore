@@ -112,6 +112,9 @@ public class AFCClient {
     
     private func transact(op: UInt64, headerPayload: Data, payload: Data, opName: String = "未知") async throws -> (op: UInt64, headerPayload: Data, payload: Data) {
         let num = nextNum()
+        // DEBUG: log outgoing packet
+        print("[AFC] >>> \(opName) op=0x\(String(format: "%02X", op)) num=\(num) hpLen=\(headerPayload.count) payloadLen=\(payload.count)")
+        print("[AFC] >>> hp hex: \(headerPayload.map { String(format: "%02x", $0) }.joined())")
         var header = Data()
         header.append("CFA6LPAA".data(using: .ascii)!)
         var entireLen = UInt64(40 + headerPayload.count + payload.count).littleEndian
@@ -130,8 +133,10 @@ public class AFCClient {
             throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
         }
         guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
+            print("[AFC] <<< \(opName) INVALID MAGIC: \(respHeader.prefix(8).map { String(format: "%02x", $0) }.joined())")
             throw AFCError.invalidResponse
         }
+        print("[AFC] <<< \(opName) respOp=0x\(String(format: "%02X", respOp)) entireLen=\(respEntireLen) hpLen=\(respHpLen)")
         let respEntireLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respHpLen = respHeader[16..<24].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respOp = respHeader[32..<40].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
