@@ -33,12 +33,8 @@ public class AppInstaller {
         }
         tmpLockdown.disconnect()
         // EMProxy+WireGuard 開啟時走 10.7.0.1（隧道轉發全部端口）；否則走 Wi-Fi IP
-        let afcHost: String
-        if EMProxyManager.shared.isRunning {
-            afcHost = "10.7.0.1"
-        } else {
-            afcHost = VPNConnectionChecker.shared.discoverWiFiIP() ?? "127.0.0.1"
-        }
+        // AFC 端口是經 10.7.0.1 的 lockdownd 開的，必須走同一個接口
+        let afcHost = "10.7.0.1"
         let afc = AFCClient(host: afcHost)
         do {
             try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? afcIdentity : nil)
