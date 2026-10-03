@@ -133,13 +133,13 @@ public class AFCClient {
             throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
         }
         guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
-            print("[AFC] <<< \(opName) INVALID MAGIC: \(respHeader.prefix(8).map { String(format: "%02x", $0) }.joined())")
+            print("[AFC] <<< \(opName) INVALID MAGIC")
             throw AFCError.invalidResponse
         }
-        print("[AFC] <<< \(opName) respOp=0x\(String(format: "%02X", respOp)) entireLen=\(respEntireLen) hpLen=\(respHpLen)")
         let respEntireLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respHpLen = respHeader[16..<24].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respOp = respHeader[32..<40].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
+        print("[AFC] <<< \(opName) respOp=0x\(String(format: "%02X", respOp)) entireLen=\(respEntireLen) hpLen=\(respHpLen)")
         var respHp = Data()
         let hpToRead = Int(respHpLen) - 40
         if hpToRead > 0 {
