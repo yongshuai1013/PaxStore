@@ -153,27 +153,27 @@ struct ConnectionConfigView: View {
 
     private func discoverNetwork() {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return }
+        guard getifaddrs(&ifaddr) == 0 else { return }
         defer { freeifaddrs(ifaddr) }
-        var ptr = first
-        while true {
-            let ifa = ptr.pointee
+        var ptr = ifaddr
+        while let curr = ptr {
+            let ifa = curr.pointee
             if let addrPtr = ifa.ifa_addr,
                addrPtr.pointee.sa_family == UInt8(AF_INET),
-               let name = ifa.ifa_name {
-                let ifName = String(cString: name)
+               let cname = ifa.ifa_name {
+                let ifName = String(cString: cname)
                 if ifName.hasPrefix("utun") {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    let netmask = ifa.ifa_netmask
                     if getnameinfo(addrPtr, socklen_t(addrPtr.pointee.sa_len),
                                    &hostname, socklen_t(hostname.count),
                                    nil, 0, NI_NUMERICHOST) == 0 {
                         let ip = String(cString: hostname)
                         var prefix = 32
-                        if let nm = netmask {
-                            let sin = nm.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
-                            let mask = UInt32(bigEndian: sin)
-                            prefix = mask.nonzeroBitCount
+                        if let nm = ifa.ifa_netmask {
+                            let s = nm.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+                                $0.pointee.sin_addr.s_addr
+                            }
+                            prefix = UInt32(bigEndian: s).nonzeroBitCount
                         }
                         tunnelIP = "\(ip)/\(prefix)"
                         let parts = ip.split(separator: ".")
@@ -183,9 +183,7 @@ struct ConnectionConfigView: View {
                         break
                     }
                 }
-            guard let next = ifa.ifa_next else { break }
-            ptr = next
+            }
+            ptr = ifa.ifa_next
         }
     }
-
-}
