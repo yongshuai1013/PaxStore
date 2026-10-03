@@ -40,7 +40,12 @@ public class PlistInstaller {
         return nioServer?.installPageURL()
     }
 
-    public func installTriggerURL(plistURL: URL) -> URL? {
+        public func ipaURLString() -> String? {
+        guard let server = nioServer else { return nil }
+        return "http://\(server.externalHost):\(server.port)/\(server.serverId).ipa"
+    }
+
+public func installTriggerURL(plistURL: URL) -> URL? {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         let encoded = plistURL.absoluteString.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
