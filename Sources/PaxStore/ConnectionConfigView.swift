@@ -97,7 +97,6 @@ struct ConnectionConfigView: View {
         .navigationTitle("Connection Config")
         .onAppear {
             discoverNetwork()
-            loadSaved()
         }
         .navigationBarItems(trailing: Button("Confirm") { save() })
         .onAppear { load() }
@@ -165,7 +164,7 @@ struct ConnectionConfigView: View {
                 let ifName = String(cString: name)
                 if ifName.hasPrefix("utun") {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    let addr = ifa.ifa_addr
+                    if let addr = ifa.ifa_addr {
                     let netmask = ifa.ifa_netmask
                     if getnameinfo(addr, socklen_t(addr.pointee.sa_len),
                                    &hostname, socklen_t(hostname.count),
