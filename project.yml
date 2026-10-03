@@ -35,6 +35,7 @@ targets:
     resources:
       - Sources/PaxStore/Resources/ios-sign.p12
       - Sources/PaxStore/Resources/silence.wav
+      - Sources/PaxStore/Assets.xcassets
     dependencies:
       - package: SideSign
       - package: CodeSignKit
