@@ -7,6 +7,25 @@ import Security
 public class AFCClient {
     private var channel: Channel?
     private var eventLoopGroup: EventLoopGroup?
+    
+    static func afcLog(_ msg: String) {
+        let line = "[AFC] " + msg + "\n"
+        print(line, terminator: "")
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let url = docs.appendingPathComponent("afc_debug.log")
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    if let h = try? FileHandle(forWritingTo: url) {
+                        h.seekToEndOfFile()
+                        h.write(data)
+                        try? h.close()
+                    }
+                } else {
+                    try? data.write(to: url)
+                }
+            }
+        }
+    }
     private var useSSL = false
     private let host: String
     private var packetNum: UInt64 = 0
@@ -113,8 +132,8 @@ public class AFCClient {
     private func transact(op: UInt64, headerPayload: Data, payload: Data, opName: String = "未知") async throws -> (op: UInt64, headerPayload: Data, payload: Data) {
         let num = nextNum()
         // DEBUG: log outgoing packet
-        print("[AFC] >>> \(opName) op=0x\(String(format: "%02X", op)) num=\(num) hpLen=\(headerPayload.count) payloadLen=\(payload.count)")
-        print("[AFC] >>> hp hex: \(headerPayload.map { String(format: "%02x", $0) }.joined())")
+        Self.afcLog(">>> \(opName) op=0x\(String(format: "%02X", op)) num=\(num) hpLen=\(headerPayload.count) payloadLen=\(payload.count)")
+        Self.afcLog(">>> hp hex: \(headerPayload.map { String(format: "%02x", $0) }.joined())")
         var header = Data()
         header.append("CFA6LPAA".data(using: .ascii)!)
         var entireLen = UInt64(40 + headerPayload.count + payload.count).littleEndian
@@ -133,13 +152,13 @@ public class AFCClient {
             throw AFCError.operationFailed("\(opName): 讀回應頭失敗: \(error)")
         }
         guard respHeader.prefix(8) == "CFA6LPAA".data(using: .ascii)! else {
-            print("[AFC] <<< \(opName) INVALID MAGIC")
+            Self.afcLog("<<< \(opName) INVALID MAGIC")
             throw AFCError.invalidResponse
         }
         let respEntireLen = respHeader[8..<16].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respHpLen = respHeader[16..<24].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
         let respOp = respHeader[32..<40].withUnsafeBytes { $0.load(as: UInt64.self).littleEndian }
-        print("[AFC] <<< \(opName) respOp=0x\(String(format: "%02X", respOp)) entireLen=\(respEntireLen) hpLen=\(respHpLen)")
+        Self.afcLog("<<< \(opName) respOp=0x\(String(format: "%02X", respOp)) entireLen=\(respEntireLen) hpLen=\(respHpLen)")
         var respHp = Data()
         let hpToRead = Int(respHpLen) - 40
         if hpToRead > 0 {
