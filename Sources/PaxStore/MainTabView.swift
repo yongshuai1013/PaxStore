@@ -160,6 +160,7 @@ struct SettingsView: View {
             }
             Section(header: Text("工具")) {
                 NavigationLink("檔案管理", destination: FileManagerRootView())
+                NavigationLink("日誌", destination: LogView())
             }
         }
         .navigationTitle("設定")
