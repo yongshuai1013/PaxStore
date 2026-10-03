@@ -169,7 +169,7 @@ struct CertificateDetailView: View {
             NavigationLink(destination: ProfileDownloadView(), isActive: $showProfileDownload) {
                 EmptyView()
             }
-        }
+        )
         .onAppear {
             if hasPrivateKey {
                 privateKeyData = PaxSigningService.shared.loadActiveCertificate()?.privateKey
