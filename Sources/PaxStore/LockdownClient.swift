@@ -512,6 +512,9 @@ public class LockdownClient {
         // 客戶端身份（證書+私鑰）
         status = SSLSetCertificate(ctx, [identity] as CFArray)
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetCertificate: \(status)") }
+        // SNI（AFC 那邊用 "Device"，這裡也試試）
+        status = SSLSetPeerDomainName(ctx, "Device", 6)
+        guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetPeerDomainName: \(status)") }
         // 不驗證服務器（lockdownd 自簽名），但要在 server auth 處手動放行
         status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
         guard status == errSecSuccess else { throw LockdownError.tlsSetupFailed("SSLSetSessionOption: \(status)") }
