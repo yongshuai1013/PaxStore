@@ -166,11 +166,11 @@ struct SettingsView: View {
                         Text("Apple ID")
                         Spacer()
                         Text(appleID).foregroundColor(.secondary)
+                        Button("登出") {
+                            onLogout()
+                        }
+                        .foregroundColor(.red)
                     }
-                    Button("登出") {
-                        onLogout()
-                    }
-                    .foregroundColor(.red)
                 } else {
                     NavigationLink(destination: LoginView(appleID: $appleID, isLoggedIn: $isLoggedIn)) {
                         Text("登入 Apple ID")
