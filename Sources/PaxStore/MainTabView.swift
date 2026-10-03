@@ -128,10 +128,6 @@ struct SettingsView: View {
                         Text("Apple ID")
                         Spacer()
                         Text(appleID).foregroundColor(.secondary)
-                        Button("登出") {
-                            onLogout()
-                        }
-                        .foregroundColor(.red)
                     }
                 } else {
                     NavigationLink(destination: LoginView(appleID: $appleID, isLoggedIn: $isLoggedIn)) {
@@ -140,6 +136,12 @@ struct SettingsView: View {
                 }
                 NavigationLink("App ID 管理", destination: AppIDsView())
                 NavigationLink("證書管理", destination: SigningView())
+                if isLoggedIn {
+                    Button("登出") {
+                        onLogout()
+                    }
+                    .foregroundColor(.red)
+                }
             }
             Section(header: Text("設備")) {
                 NavigationLink("配對檔管理", destination: PairingFileManagementView())
