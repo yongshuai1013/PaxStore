@@ -173,7 +173,8 @@ struct InstallView: View {
         }
         .sheet(isPresented: $isPickingIPA) {
             DocumentPicker { url in
-                let dest = FileManager.default.temporaryDirectory.appendingPathComponent(url.lastPathComponent)
+                let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let dest = docs.appendingPathComponent(url.lastPathComponent)
                 try? FileManager.default.removeItem(at: dest)
                 do {
                     _ = url.startAccessingSecurityScopedResource()
