@@ -26,7 +26,7 @@ public class AppInstaller {
         // 先拿 AFC 端口（經 10.7.0.1 lockdownd），再斷開
         let tmpLockdown = LockdownClient(host: host)
         try await tmpLockdown.connect(pairingFileURL: pairingURL)
-        let (afcPort, _) = try await tmpLockdown.startService("com.apple.afc")
+        let (afcPort, afcSSL) = try await tmpLockdown.startService("com.apple.afc")
         guard let afcIdentity = tmpLockdown.identity else {
             tmpLockdown.disconnect()
             throw InstallerError.afcFailed("無法取得配對 identity")
@@ -41,7 +41,7 @@ public class AppInstaller {
         }
         let afc = AFCClient(host: afcHost)
         do {
-            try await afc.connect(port: afcPort, useSSL: true, identity: afcIdentity)
+            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? afcIdentity : nil)
             try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
                 let pct = total > 0 ? Int(sent * 60 / total) : 0
                 progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
