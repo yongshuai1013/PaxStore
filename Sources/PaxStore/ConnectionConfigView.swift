@@ -164,13 +164,11 @@ struct ConnectionConfigView: View {
                 let ifName = String(cString: name)
                 if ifName.hasPrefix("utun") {
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    if let addr = ifa.ifa_addr {
                     let netmask = ifa.ifa_netmask
-                    if getnameinfo(addr, socklen_t(addr.pointee.sa_len),
+                    if getnameinfo(addrPtr, socklen_t(addrPtr.pointee.sa_len),
                                    &hostname, socklen_t(hostname.count),
                                    nil, 0, NI_NUMERICHOST) == 0 {
                         let ip = String(cString: hostname)
-                        // Calculate prefix from netmask
                         var prefix = 32
                         if let nm = netmask {
                             let sin = nm.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
@@ -178,7 +176,6 @@ struct ConnectionConfigView: View {
                             prefix = mask.nonzeroBitCount
                         }
                         tunnelIP = "\(ip)/\(prefix)"
-                        // Device IP is typically .1 in the same subnet
                         let parts = ip.split(separator: ".")
                         if parts.count == 4 {
                             autoDeviceIP = "\(parts[0]).\(parts[1]).\(parts[2]).1/32"
@@ -186,7 +183,6 @@ struct ConnectionConfigView: View {
                         break
                     }
                 }
-            }
             guard let next = ifa.ifa_next else { break }
             ptr = next
         }
