@@ -143,7 +143,7 @@ struct CertificateDetailView: View {
         }
         .sheet(isPresented: $showShare) {
             if let url = exportURL {
-                ShareSheet(activityItems: [url])
+                ShareSheet(url: url)
             }
         }
         .onAppear {
@@ -365,11 +365,3 @@ private struct CopyableRow: View {
     }
 }
 
-/// 分享表單（iOS 15 兼容）
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
