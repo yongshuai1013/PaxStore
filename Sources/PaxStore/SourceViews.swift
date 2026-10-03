@@ -59,8 +59,11 @@ struct SourceDetailView: View {
     }
 
     private func load() {
-        guard let url = URL(string: sourceURL) else {
-            errorMessage = "無效的 URL"
+        guard let url = URL(string: sourceURL),
+              let scheme = url.scheme?.lowercased(),
+              (scheme == "http" || scheme == "https"),
+              url.host != nil else {
+            errorMessage = "無效的源地址，請檢查 URL 是否正確（需以 http:// 或 https:// 開頭）"
             isLoading = false
             return
         }
@@ -190,7 +193,10 @@ struct AddSourceView: View {
             }
             Section {
                 Button("添加") {
-                    let u = newURL.trimmingCharacters(in: .whitespaces)
+                    var u = newURL.trimmingCharacters(in: .whitespaces)
+                    if !u.lowercased().hasPrefix("http://") && !u.lowercased().hasPrefix("https://") {
+                        u = "https://" + u
+                    }
                     if !u.isEmpty && !sources.contains(u) {
                         sources.append(u)
                         UserDefaults.standard.set(sources, forKey: key)
