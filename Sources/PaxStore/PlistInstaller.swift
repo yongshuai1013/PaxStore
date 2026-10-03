@@ -50,7 +50,7 @@ public class PlistInstaller {
 
     public func externalPlistURL(bundleId: String, appName: String, version: String) -> URL? {
         guard let server = nioServer else { return nil }
-        let ipaURLStr = "http://localhost:\(server.port)/\(server.serverId).ipa"
+        let ipaURLStr = "http://127.0.0.1:\(server.port)/\(server.serverId).ipa"
         let base = "https://api.palera.in/genPlist?bundleid=\(bundleId)&name=\(appName)&version=\(version)&fetchurl=\(ipaURLStr)"
         guard let encoded = base.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
                 .addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
