@@ -137,6 +137,11 @@ struct CertificateDetailView: View {
                 }
             }
         }
+        Section(header: Text("描述檔")) {
+            NavigationLink(destination: ProfileDownloadView()) {
+                Text("下載描述檔 (.mobileprovision)")
+            }
+        }
         .navigationTitle("Certificate Details")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
