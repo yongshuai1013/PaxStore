@@ -7,6 +7,7 @@ struct SigningFlowView: View {
     @State private var teams: [SideSign.Team] = []
     @State private var selectedTeam: SideSign.Team?
     @State private var ipaURL: URL?
+    @State private var customBundleId: String = ""
     @State private var isPickingIPA = false
     @State private var isSigning = false
     @State private var progressLog = ""
