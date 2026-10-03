@@ -142,7 +142,7 @@ struct SignInstallView: View {
         Form {
             Section(header: Text("簽名")) {
                 NavigationLink("簽名 IPA", destination: SigningFlowView())
-                NavigationLink("簽名管理", destination: SigningView())
+                NavigationLink("證書管理", destination: SigningView())
             }
             Section(header: Text("安裝")) {
                 NavigationLink("安裝 App", destination: InstallView())
@@ -166,18 +166,18 @@ struct SettingsView: View {
                         Text("Apple ID")
                         Spacer()
                         Text(appleID).foregroundColor(.secondary)
+                        Button("登出") {
+                            onLogout()
+                        }
+                        .foregroundColor(.red)
                     }
-                    NavigationLink("App ID 管理", destination: AppIDsView())
-                    NavigationLink("證書管理", destination: SigningView())
-                    Button("登出") {
-                        onLogout()
-                    }
-                    .foregroundColor(.red)
                 } else {
                     NavigationLink(destination: LoginView(appleID: $appleID, isLoggedIn: $isLoggedIn)) {
                         Text("登入 Apple ID")
                     }
                 }
+                NavigationLink("App ID 管理", destination: AppIDsView())
+                NavigationLink("證書管理", destination: SigningView())
             }
             Section(header: Text("設備")) {
                 NavigationLink("配對檔管理", destination: PairingFileManagementView())
