@@ -9,8 +9,6 @@ struct ConnectionConfigView: View {
     @State private var isChecking = false
     @State private var emproxyRunning = false
     @State private var emproxyMsg = ""
-    @State private var tunnelIP = ""
-    @State private var autoDeviceIP = ""
 
     private let defaults = UserDefaults.standard
 
@@ -18,21 +16,6 @@ struct ConnectionConfigView: View {
         Form {
             Section {
                 Toggle("Use Local VPN", isOn: $useLocalVPN)
-            }
-
-            Section(header: Text("AUTO DISCOVERED FROM NETWORK")) {
-                HStack {
-                    Text("Tunnel IP")
-                    Spacer()
-                    Text(tunnelIP.isEmpty ? "—" : tunnelIP)
-                        .foregroundColor(.secondary)
-                }
-                HStack {
-                    Text("Device IP")
-                    Spacer()
-                    Text(autoDeviceIP.isEmpty ? "—" : autoDeviceIP)
-                        .foregroundColor(.secondary)
-                }
             }
 
             Section(header: Text("REMOTE ENDPOINT")) {
@@ -95,9 +78,6 @@ struct ConnectionConfigView: View {
             }
         }
         .navigationTitle("Connection Config")
-        .onAppear {
-            discoverNetwork()
-        }
         .navigationBarItems(trailing: Button("Confirm") { save() })
         .onAppear { load() }
     }
@@ -150,40 +130,4 @@ struct ConnectionConfigView: View {
             emproxyMsg = rc == 0 ? "已啟動 \(host):\(port)" : "啟動失敗: \(rc)"
         }
     }
-
-    private func discoverNetwork() {
-        var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0 else { return }
-        defer { freeifaddrs(ifaddr) }
-        var ptr = ifaddr
-        while let curr = ptr {
-            let ifa = curr.pointee
-            if let addrPtr = ifa.ifa_addr,
-               addrPtr.pointee.sa_family == UInt8(AF_INET),
-               let cname = ifa.ifa_name {
-                let ifName = String(cString: cname)
-                if ifName.hasPrefix("utun") {
-                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    if getnameinfo(addrPtr, socklen_t(addrPtr.pointee.sa_len),
-                                   &hostname, socklen_t(hostname.count),
-                                   nil, 0, NI_NUMERICHOST) == 0 {
-                        let ip = String(cString: hostname)
-                        var prefix = 32
-                        if let nm = ifa.ifa_netmask {
-                            let s = nm.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                                $0.pointee.sin_addr.s_addr
-                            }
-                            prefix = UInt32(bigEndian: s).nonzeroBitCount
-                        }
-                        tunnelIP = "\(ip)/\(prefix)"
-                        let parts = ip.split(separator: ".")
-                        if parts.count == 4 {
-                            autoDeviceIP = "\(parts[0]).\(parts[1]).\(parts[2]).1/32"
-                        }
-                        break
-                    }
-                }
-            }
-            ptr = ifa.ifa_next
-        }
-    }
+}
