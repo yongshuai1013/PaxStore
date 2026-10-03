@@ -42,17 +42,15 @@ struct LogView: View {
 
     private func logFileURL() -> URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("afc_debug.log")
+            .appendingPathComponent("paxstore.log")
     }
 
     private func load() {
-        guard let url = logFileURL() else { return }
-        logContent = (try? String(contentsOf: url)) ?? ""
+        logContent = AppLogger.shared.read()
     }
 
     private func clear() {
-        guard let url = logFileURL() else { return }
-        try? FileManager.default.removeItem(at: url)
+        AppLogger.shared.clear()
         logContent = ""
     }
 }
