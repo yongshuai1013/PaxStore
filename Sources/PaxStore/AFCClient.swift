@@ -175,8 +175,7 @@ public class AFCClient {
     }
     
     public func makeDirectory(path: String) async throws {
-        var hp = path.data(using: .utf8)!
-        hp.append(0)  // NUL terminator
+        let hp = path.data(using: .utf8)!
         let (op, hpResp, _) = try await transact(op: OP_MKDIR, headerPayload: hp, payload: Data(), opName: "MKDIR")
         guard op == OP_STATUS else {
             throw AFCError.operationFailed("MKDIR \(path) (op=\(String(format: "0x%02X", op)))")
@@ -204,7 +203,6 @@ public class AFCClient {
         var mode = FOPEN_WR.littleEndian
         openHp.append(Data(bytes: &mode, count: 8))
         openHp.append(remotePath.data(using: .utf8)!)
-        openHp.append(0)  // NUL terminator (libimobiledevice: strlen+1)
         let (openOp, openHpResp, _) = try await transact(op: OP_OPEN, headerPayload: openHp, payload: Data(), opName: "OPEN")
         guard openOp == OP_OPENRES, openHpResp.count >= 8 else {
             throw AFCError.openFailed("\(remotePath) (op=\(String(format: "0x%02X", openOp)))")
