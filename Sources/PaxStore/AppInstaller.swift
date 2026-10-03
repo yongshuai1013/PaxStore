@@ -34,8 +34,8 @@ public class AppInstaller {
             rustAfc.disconnect()
             progress("上傳完成", 80)
         } catch {
-            afc.disconnect()
-            throw InstallerError.afcFailed("Swift AFC: \(error)")
+            rustAfc.disconnect()
+            throw InstallerError.afcFailed("Rust AFC: \(error)")
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
