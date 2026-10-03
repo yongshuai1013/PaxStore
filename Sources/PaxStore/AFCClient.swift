@@ -100,6 +100,11 @@ public class AFCClient {
             }
             let ch = try await bootstrapWithTLS.connect(host: host, port: Int(port)).get()
             self.channel = ch
+            // 等待 TLS 握手完成再返回，否則先發的包會被服務端丟棄
+            if let sslHandler = try? await ch.pipeline.handler(type: NIOSSLClientHandler.self).get() {
+                try await sslHandler.handshakeFuture.get()
+                Self.afcLog("TLS handshake done")
+            }
         } else {
             let bootstrapPlain = bootstrap.channelInitializer { channel in
                 channel.pipeline.addHandler(AFCResponseHandler())
