@@ -305,7 +305,7 @@ struct InstallView: View {
             }
             progressMessage = "正在打開系統安裝..."
             debugPlistURL = useExternalPlist ? (PlistInstaller.shared.externalPlistURL(bundleId: info.bundleId, appName: info.name, version: info.version)?.absoluteString ?? "") : plistURL.absoluteString
-            debugIpaURL = "http://127.0.0.1:\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
+            debugIpaURL = "http://localhost:\(PlistInstaller.shared.port)/\(PlistInstaller.shared.serverId).ipa"
             await UIApplication.shared.open(trigger)
             progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
             // 私有 API：主動掛起，讓系統接管安裝（靜音保活讓服務繼續跑）
