@@ -18,24 +18,48 @@ public class AppInstaller {
         progress("讀取配對檔...", 5)
         guard let pairingURL = findPairingFile() else { throw InstallerError.noPairingFile }
         
-        // 3. 上傳 IPA (經 Rust idevice-ffi，與 SideStore 同款)
-        progress("上傳 IPA... (Rust)", 20)
+        // 3. 上傳 IPA (經 Swift AFCClient，走 Wi-Fi IP；VPN 只轉發 10.7.0.1:62078)
+        progress("上傳 IPA... (Swift/WiFi)", 20)
         let remoteName = "PaxStore-\(UUID().uuidString.prefix(8)).ipa"
         let stagedPath = "PublicStaging/\(remoteName)"
         let installPath = "/PublicStaging/\(remoteName)"
-        // Rust 庫要求 lockdownd 和 AFC 同一個 host；EMProxy 開著時都是 10.7.0.1
-        let rustAfc = RustAFCClient()
+        // 先拿 AFC 端口（經 10.7.0.1 lockdownd），再斷開
+        let tmpLockdown = LockdownClient(host: host)
+        try await tmpLockdown.connect(pairingFileURL: pairingURL)
+        let (afcPort, afcSSL) = try await tmpLockdown.startService("com.apple.afc")
+        // 寫到 AFC 日誌文件
+        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let url = docs.appendingPathComponent("afc_debug.log")
+            let line = "[AFC] StartService com.apple.afc -> port=\(afcPort) ssl=\(afcSSL)\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: url.path),
+                   let h = try? FileHandle(forWritingTo: url) {
+                    h.seekToEndOfFile(); h.write(data); try? h.close()
+                } else {
+                    try? data.write(to: url)
+                }
+            }
+        }
+        guard let afcIdentity = tmpLockdown.identity else {
+            tmpLockdown.disconnect()
+            throw InstallerError.afcFailed("無法取得配對 identity")
+        }
+        tmpLockdown.disconnect()
+        // EMProxy+WireGuard 開啟時走 10.7.0.1（隧道轉發全部端口）；否則走 Wi-Fi IP
+        // AFC 端口是經 10.7.0.1 的 lockdownd 開的，必須走同一個接口
+        let afcHost = "10.7.0.1"
+        let afc = AFCClient(host: afcHost)
         do {
-            try await rustAfc.connect(pairingFileURL: pairingURL, host: "10.7.0.1")
-            try await rustAfc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
+            try await afc.connect(port: afcPort, useSSL: afcSSL, identity: afcSSL ? afcIdentity : nil)
+            try await afc.uploadFile(localURL: ipaURL, remotePath: stagedPath) { sent, total in
                 let pct = total > 0 ? Int(sent * 60 / total) : 0
                 progress("上傳 IPA... \(sent / 1024 / 1024)MB / \(total / 1024 / 1024)MB", 20 + pct)
             }
-            rustAfc.disconnect()
+            afc.disconnect()
             progress("上傳完成", 80)
         } catch {
-            rustAfc.disconnect()
-            throw InstallerError.afcFailed("Rust AFC: \(error)")
+            afc.disconnect()
+            throw InstallerError.afcFailed("Swift AFC: \(error)")
         }
         
         // 4. 連接 lockdownd（上傳完成後再建，供 installation_proxy 用）
