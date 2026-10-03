@@ -1,7 +1,6 @@
 import Foundation
 import NIO
 import NIOHTTP1
-import NIOSSL
 import UIKit
 
 public class NIOPlistServer {
@@ -13,47 +12,26 @@ public class NIOPlistServer {
     public var manifestData: Data?
     public var serverId: String = UUID().uuidString
     public var pendingItmsURL: String = ""
-    public let domain = "ios-sign.duckdns.org"
 
-    private let crtPEM: String
-    private let keyPEM: String
-
-    public init(crtPEM: String, keyPEM: String) {
-        self.crtPEM = crtPEM
-        self.keyPEM = keyPEM
-    }
+    public init() {}
 
     public func start() throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         self.group = group
-
-        let certs = try NIOSSLCertificate.fromPEMBytes(Array(crtPEM.utf8)).map {
-            NIOSSLCertificateSource.certificate($0)
-        }
-        let key = try NIOSSLPrivateKey(bytes: Array(keyPEM.utf8), format: .pem)
-        var tlsConfig = TLSConfiguration.makeServerConfiguration(
-            certificateChain: certs,
-            privateKey: .privateKey(key)
-        )
-        tlsConfig.minimumTLSVersion = .tlsv12
-        let sslContext = try NIOSSLContext(configuration: tlsConfig)
 
         let server = self
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                let sslHandler = NIOSSLServerHandler(context: sslContext)
                 let httpHandler = HTTPHandler(server: server)
-                return channel.pipeline.addHandler(sslHandler).flatMap {
-                    channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
-                }.flatMap {
+                return channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {
                     channel.pipeline.addHandler(httpHandler)
                 }
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
 
-        let channel = try bootstrap.bind(host: "0.0.0.0", port: 0).wait()
+        let channel = try bootstrap.bind(host: "127.0.0.1", port: 0).wait()
         self.channel = channel
         if let localAddr = channel.localAddress, let p = localAddr.port {
             self.port = p
@@ -70,7 +48,7 @@ public class NIOPlistServer {
     }
 
     public func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "https://\(domain):\(port)"
+        let base = "http://127.0.0.1:\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
@@ -100,8 +78,8 @@ public class NIOPlistServer {
 
     public func plistURL() -> URL? {
         var comps = URLComponents()
-        comps.scheme = "https"
-        comps.host = domain
+        comps.scheme = "http"
+        comps.host = "127.0.0.1"
         comps.port = port
         comps.path = "/\(serverId).plist"
         return comps.url
@@ -109,8 +87,8 @@ public class NIOPlistServer {
 
     public func installPageURL() -> URL? {
         var comps = URLComponents()
-        comps.scheme = "https"
-        comps.host = domain
+        comps.scheme = "http"
+        comps.host = "127.0.0.1"
         comps.port = port
         comps.path = "/install"
         return comps.url
