@@ -109,7 +109,7 @@ public class NIOPlistServer {
     public func plistURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "127.0.0.1"
+        comps.host = externalHost
         comps.port = port
         comps.path = "/\(serverId).plist"
         return comps.url
@@ -118,7 +118,7 @@ public class NIOPlistServer {
     public func installPageURL() -> URL? {
         var comps = URLComponents()
         comps.scheme = "http"
-        comps.host = "127.0.0.1"
+        comps.host = externalHost
         comps.port = port
         comps.path = "/install"
         return comps.url
