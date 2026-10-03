@@ -13,6 +13,9 @@ packages:
   swift-nio-ssl:
     url: https://github.com/apple/swift-nio-ssl.git
     from: 2.0.0
+  swift-nio:
+    url: https://github.com/apple/swift-nio.git
+    from: 2.0.0
   SideSign:
     url: https://github.com/yongshuai1013/SideSign.git
     revision: da194c60f5366394fb715354391952dd9ca89ac4
@@ -39,6 +42,10 @@ targets:
         product: EMProxy
       - package: swift-nio-ssl
         product: NIOSSL
+      - package: swift-nio
+        product: NIO
+      - package: swift-nio
+        product: NIOHTTP1
       - framework: Libraries/IDeviceFFI.xcframework
         embed: false
     settings:
