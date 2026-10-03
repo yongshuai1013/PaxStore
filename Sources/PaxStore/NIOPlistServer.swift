@@ -31,7 +31,7 @@ public class NIOPlistServer {
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
 
-        let channel = try bootstrap.bind(host: "localhost", port: 0).wait()
+        let channel = try bootstrap.bind(host: "127.0.0.1", port: 0).wait()
         self.channel = channel
         if let localAddr = channel.localAddress, let p = localAddr.port {
             self.port = p
