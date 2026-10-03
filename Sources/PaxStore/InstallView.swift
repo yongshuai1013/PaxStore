@@ -20,9 +20,6 @@ struct InstallView: View {
     @State private var showingLog = false
     @State private var logContent = ""
     @StateObject private var updateChecker = UpdateChecker()
-    @State private var showingLog = false
-    @State private var logContent = ""
-    @StateObject private var updateChecker = UpdateChecker()
     @State private var useExternalPlist = false
     @State private var debugPlistURL = ""
     @State private var debugIpaURL = ""
