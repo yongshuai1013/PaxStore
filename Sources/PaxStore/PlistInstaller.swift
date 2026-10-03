@@ -31,6 +31,7 @@ public class PlistInstaller {
     }
 
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
+        AudioKeepAlive.shared.start()
         let server = NIOPlistServer(crtPEM: crtPEM, keyPEM: keyPEM)
         server.ipaURL = ipaURL
         try server.start()
@@ -45,6 +46,7 @@ public class PlistInstaller {
     public func stop() {
         nioServer?.stop()
         nioServer = nil
+        AudioKeepAlive.shared.stop()
     }
 
     public var pendingItmsURL: String {
