@@ -13,6 +13,7 @@ struct CertificateDetailView: View {
     @State private var exportURL: URL?
     @State private var showShare = false
     @State private var exportError: String?
+    @State private var showExportOptions = false
     
     var body: some View {
         List {
@@ -139,7 +140,13 @@ struct CertificateDetailView: View {
         .navigationTitle("Certificate Details")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("導出") { exportCertificate() }
+                Button("導出") {
+                    if hasPrivateKey {
+                        showExportOptions = true
+                    } else {
+                        exportCertificate()
+                    }
+                }
             }
         }
         .sheet(isPresented: $showShare) {
@@ -154,6 +161,16 @@ struct CertificateDetailView: View {
             Button("確定", role: .cancel) { }
         } message: {
             Text(exportError ?? "")
+        }
+        .actionSheet(isPresented: $showExportOptions) {
+            ActionSheet(
+                title: Text("選擇導出格式"),
+                buttons: [
+                    .default(Text("證書 (.cer)")) { exportCertificate() },
+                    .default(Text("P12 含私鑰 (.p12)")) { exportP12() },
+                    .cancel(Text("取消"))
+                ]
+            )
         }
         .onAppear {
             if hasPrivateKey {
@@ -178,6 +195,28 @@ struct CertificateDetailView: View {
             showShare = true
         } catch {
             exportError = "寫入失敗：\(error.localizedDescription)"
+        }
+    }
+
+    private func exportP12() {
+        exportError = nil
+        guard let keyStore = PaxSigningService.shared.loadActiveCertificate() else {
+            exportError = "本地沒有該證書的私鑰，無法導出 P12"
+            return
+        }
+        guard keyStore.certificate.serialNumberHex == cert.serialNumberHex else {
+            exportError = "該證書不是本地激活證書，無私鑰可導出"
+            return
+        }
+        do {
+            let p12Data = try keyStore.exportP12()
+            let filename = "certificate-\(cert.serialNumberHex).p12"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+            try p12Data.write(to: url)
+            exportURL = url
+            showShare = true
+        } catch {
+            exportError = "導出 P12 失敗：\(error.localizedDescription)"
         }
     }
 
