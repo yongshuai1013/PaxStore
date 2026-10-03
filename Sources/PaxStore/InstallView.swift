@@ -17,6 +17,12 @@ struct InstallView: View {
     @State private var errorMessage: String?
     @State private var isDiagnosing = false
     @State private var afcDiagnostic = ""
+    @State private var showingLog = false
+    @State private var logContent = ""
+    @StateObject private var updateChecker = UpdateChecker()
+    @State private var showingLog = false
+    @State private var logContent = ""
+    @StateObject private var updateChecker = UpdateChecker()
     @State private var useExternalPlist = false
     @State private var debugPlistURL = ""
     @State private var debugIpaURL = ""
@@ -89,6 +95,29 @@ struct InstallView: View {
                     Text(afcDiagnostic)
                         .font(.caption)
                         .foregroundColor(.gray)
+                }
+                Button("查看 AFC 日誌") {
+                    if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                        let url = docs.appendingPathComponent("afc_debug.log")
+                        logContent = (try? String(contentsOf: url)) ?? "無日誌"
+                    }
+                    showingLog = true
+                }
+                Button("清除日誌") {
+                    if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                        let url = docs.appendingPathComponent("afc_debug.log")
+                        try? FileManager.default.removeItem(at: url)
+                    }
+                }
+            }
+            
+            Section(header: Text("更新")) {
+                Button("檢查更新") {
+                    updateChecker.check()
+                }
+                if updateChecker.updateAvailable {
+                    Text("發現新版本: \(updateChecker.latestVersion)")
+                        .foregroundColor(.green)
                 }
             }
             
