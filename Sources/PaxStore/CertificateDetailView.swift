@@ -14,6 +14,7 @@ struct CertificateDetailView: View {
     @State private var showShare = false
     @State private var exportError: String?
     @State private var showExportOptions = false
+    @State private var showProfileDownload = false
     
     var body: some View {
         List {
@@ -137,20 +138,11 @@ struct CertificateDetailView: View {
                 }
             }
         }
-        Section(header: Text("描述檔")) {
-            NavigationLink(destination: ProfileDownloadView()) {
-                Text("下載描述檔 (.mobileprovision)")
-            }
-        }
         .navigationTitle("Certificate Details")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("導出") {
-                    if hasPrivateKey {
-                        showExportOptions = true
-                    } else {
-                        exportCertificate()
-                    }
+                    showExportOptions = true
                 }
             }
         }
@@ -170,12 +162,13 @@ struct CertificateDetailView: View {
         .actionSheet(isPresented: $showExportOptions) {
             ActionSheet(
                 title: Text("選擇導出格式"),
-                buttons: [
-                    .default(Text("證書 (.cer)")) { exportCertificate() },
-                    .default(Text("P12 含私鑰 (.p12)")) { exportP12() },
-                    .cancel(Text("取消"))
-                ]
+                buttons: exportSheetButtons()
             )
+        }
+        .background(
+            NavigationLink(destination: ProfileDownloadView(), isActive: $showProfileDownload) {
+                EmptyView()
+            }
         }
         .onAppear {
             if hasPrivateKey {
@@ -185,6 +178,18 @@ struct CertificateDetailView: View {
     }
     
     // MARK: - Export
+
+    private func exportSheetButtons() -> [ActionSheet.Button] {
+        var buttons: [ActionSheet.Button] = [
+            .default(Text("證書 (.cer)")) { exportCertificate() }
+        ]
+        if hasPrivateKey {
+            buttons.append(.default(Text("P12 含私鑰 (.p12)")) { exportP12() })
+        }
+        buttons.append(.default(Text("下載描述檔 (.mobileprovision)")) { showProfileDownload = true })
+        buttons.append(.cancel(Text("取消")))
+        return buttons
+    }
 
     private func exportCertificate() {
         exportError = nil
