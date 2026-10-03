@@ -159,7 +159,8 @@ struct ConnectionConfigView: View {
         var ptr = first
         while true {
             let ifa = ptr.pointee
-            if let ifa.ifa_addr.pointee.sa_family == UInt8(AF_INET),
+            if let addrPtr = ifa.ifa_addr,
+               addrPtr.pointee.sa_family == UInt8(AF_INET),
                let name = ifa.ifa_name {
                 let ifName = String(cString: name)
                 if ifName.hasPrefix("utun") {
