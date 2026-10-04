@@ -100,7 +100,7 @@ public class NIOPlistServer {
     }
 
     public func makeManifest(bundleId: String, appName: String, version: String) -> Data {
-        let base = "http://\(externalHost):\(port)"
+        let base = "https://\(externalHost):\(port)"
         let manifest: [String: Any] = [
             "items": [[
                 "assets": [
