@@ -305,13 +305,7 @@ struct InstallView: View {
             await UIApplication.shared.open(trigger)
             AppLogger.shared.log("InstallView: 已打開 itms-services")
             progressMessage = "已發起安裝，請在主屏幕查看進度（服務保持運行）"
-            // 暫時禁用 suspend，先保證服務存活
-            // DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            //     let suspendSel = NSSelectorFromString("suspend")
-            //     if UIApplication.shared.responds(to: suspendSel) {
-            //         UIApplication.shared.perform(suspendSel)
-            //     }
-            // }
+
         } catch {
             AppLogger.shared.log("InstallView: 錯誤 \(error.localizedDescription)")
             errorMessage = error.localizedDescription
