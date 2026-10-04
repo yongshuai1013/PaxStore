@@ -36,7 +36,7 @@ public class NIOPlistServer {
     }
 
     /// 對外 URL 用 Wi-Fi IP（仿 GCDWebServer bindToLocalhost=NO 的行為）
-    public var externalHost: String { wifiIPAddress }
+    public var externalHost: String { "paxstore.backloop.dev" }
 
     public var ipaURL: URL?
     public var manifestData: Data?
