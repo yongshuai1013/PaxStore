@@ -18,14 +18,11 @@ jobs:
           path: paxstore
           persist-credentials: true
 
-      - name: Checkout SideInstaller rust-core
+      - name: Checkout jkcoxson/idevice
         uses: actions/checkout@v4
         with:
-          repository: FrizzleM/SideInstaller
-          path: sideinstaller
-          sparse-checkout: |
-            rust-core
-          sparse-checkout-cone-mode: false
+          repository: jkcoxson/idevice
+          path: idevice-src
           
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -34,31 +31,18 @@ jobs:
           
       - name: Build idevice-ffi for iOS
         run: |
-          cd sideinstaller/rust-core
+          cd idevice-src
           BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
           IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-          cargo build --release --target aarch64-apple-ios
-          # 找生成的靜態庫和頭文件
+          cargo build -p idevice-ffi --release --target aarch64-apple-ios
           ls -lh target/aarch64-apple-ios/release/*.a
-          find ../target/aarch64-apple-ios/release -name "idevice.h" | head -5
           
       - name: Create xcframework
         run: |
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64
-          cp sideinstaller/rust-core/target/aarch64-apple-ios/release/libsideinstaller_ffi.a build/IDeviceFFI.xcframework/ios-arm64/
-          # 找頭文件（cbindgen 生成的，可能在不同位置）
-          HEADER=$(find sideinstaller/rust-core/target/aarch64-apple-ios -name "idevice.h" 2>/dev/null | head -1)
+          cp idevice-src/target/aarch64-apple-ios/release/libidevice_ffi.a build/IDeviceFFI.xcframework/ios-arm64/
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64/Headers
-          if [ -n "$HEADER" ]; then
-            cp "$HEADER" build/IDeviceFFI.xcframework/ios-arm64/Headers/
-            echo "header found: $HEADER"
-          else
-            echo "warning: idevice.h not found, creating placeholder"
-            echo "// placeholder" > build/IDeviceFFI.xcframework/ios-arm64/Headers/idevice.h
-          fi
-          # 列出所有生成的東西，方便調試
-          find sideinstaller/rust-core/target/aarch64-apple-ios/release -name "*.a" | head -5
-          # 寫 Info.plist
+          echo "// placeholder - use Libraries/IDeviceFFI-headers/idevice.h" > build/IDeviceFFI.xcframework/ios-arm64/Headers/idevice.h
           cat > build/IDeviceFFI.xcframework/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,13 +52,13 @@ jobs:
             <array>
               <dict>
                 <key>BinaryPath</key>
-                <string>libsideinstaller_ffi.a</string>
+                <string>libidevice_ffi.a</string>
                 <key>HeadersPath</key>
                 <string>Headers</string>
                 <key>LibraryIdentifier</key>
                 <string>ios-arm64</string>
                 <key>LibraryPath</key>
-                <string>libsideinstaller_ffi.a</string>
+                <string>libidevice_ffi.a</string>
                 <key>SupportedArchitectures</key>
                 <array><string>arm64</string></array>
                 <key>SupportedPlatform</key>
@@ -106,5 +90,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Libraries/IDeviceFFI.xcframework
-          git commit -m "更新 IDeviceFFI.xcframework（含 tunnel_create_usb）" || echo "無變更"
+          git commit -m "更新 IDeviceFFI.xcframework（jkcoxson/idevice 官方源，含 tunnel_create_usb）" || echo "無變更"
           git push
