@@ -149,11 +149,6 @@ struct InstallView: View {
                 }
                 .disabled(ipaURL == nil || isInstalling || !vpnConnected)
 
-                Picker("plist 模式", selection: $useExternalPlist) {
-                    Text("本地").tag(false)
-                    Text("線上 (iOS 18+)").tag(true)
-                }
-                .pickerStyle(.segmented)
 
                 Button(action: {
                     Task { await startPlistInstall() }
