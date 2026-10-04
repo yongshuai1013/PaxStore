@@ -32,12 +32,12 @@ public class PlistInstaller {
     }
 
     public var pendingItmsURL: String {
-        get { nioServer?.pendingItmsURL ?? "" }
-        set { nioServer?.pendingItmsURL = newValue }
+        get { gcdServer?.pendingItmsURL ?? "" }
+        set { gcdServer?.pendingItmsURL = newValue }
     }
 
     public func installPageURL() -> URL? {
-        return nioServer?.installPageURL()
+        return gcdServer?.installPageURL()
     }
 
         public func ipaURLString() -> String? {
