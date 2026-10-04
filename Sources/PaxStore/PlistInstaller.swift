@@ -45,7 +45,7 @@ public class PlistInstaller {
         return "https://\(server.externalHost):\(server.port)/\(server.serverId).ipa"
     }
 
-public func installTriggerURL(plistURL: URL) -> URL? {
+    public func installTriggerURL(plistURL: URL) -> URL? {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         let encoded = plistURL.absoluteString.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
