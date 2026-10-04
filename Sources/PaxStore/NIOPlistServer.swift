@@ -182,61 +182,17 @@ private class HTTPHandler: ChannelInboundHandler {
             contentType = "text/xml"
             body = server.manifestData ?? Data()
         } else if path == "/\(server.serverId).ipa" {
-            // 流式傳文件：先發頭，再分塊發 body，避免一次讀進內存卡住 event loop
+            // 一次性讀取發送（簡化，避免流式傳輸問題）
             guard let url = server.ipaURL,
-                  let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let fileSize = attrs[FileAttributeKey.size] as? UInt64 else {
+                  let data = try? Data(contentsOf: url) else {
                 status = .notFound
                 body = Data()
-                // fall through to 404 response below
-                var h404 = HTTPHeaders()
-                h404.add(name: "Content-Type", value: "application/octet-stream")
-                h404.add(name: "Content-Length", value: "0")
-                h404.add(name: "Connection", value: "close")
-                let head404 = HTTPResponseHead(version: .http1_1, status: .notFound, headers: h404)
-                context.write(wrapOutboundOut(.head(head404)), promise: nil)
-                context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
-                    context.close(promise: nil)
-                }
+                contentType = "application/octet-stream"
                 return
             }
-            var headers = HTTPHeaders()
-            headers.add(name: "Content-Type", value: "application/octet-stream")
-            headers.add(name: "Content-Length", value: "\(fileSize)")
-            headers.add(name: "Connection", value: "close")
-            let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: headers)
-            context.write(wrapOutboundOut(.head(head)), promise: nil)
-            // 後台線程分塊讀，event loop 上寫
-            let channel = context.channel
-            let handler = self
-            DispatchQueue.global(qos: .userInitiated).async {
-                guard let handle = try? FileHandle(forReadingFrom: url) else {
-                    channel.eventLoop.execute {
-                        context.writeAndFlush(handler.wrapOutboundOut(.end(nil))).whenComplete { _ in
-                            context.close(promise: nil)
-                        }
-                    }
-                    return
-                }
-                defer { try? handle.close() }
-                let chunkSize = 256 * 1024
-                while true {
-                    let data = handle.readData(ofLength: chunkSize)
-                    if data.isEmpty { break }
-                    let buf = channel.allocator.buffer(bytes: data)
-                    let p = channel.eventLoop.makePromise(of: Void.self)
-                    channel.eventLoop.execute {
-                        context.writeAndFlush(handler.wrapOutboundOut(.body(.byteBuffer(buf))), promise: p)
-                    }
-                    try? p.futureResult.wait()
-                }
-                channel.eventLoop.execute {
-                    context.writeAndFlush(handler.wrapOutboundOut(.end(nil))).whenComplete { _ in
-                        context.close(promise: nil)
-                    }
-                }
-            }
-            return
+            status = .ok
+            body = data
+            contentType = "application/octet-stream"
         } else if path == "/icon57.png" {
             contentType = "image/png"
             body = server.makeIcon(size: 57)
