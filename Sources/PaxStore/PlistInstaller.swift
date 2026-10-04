@@ -5,18 +5,18 @@ public class PlistInstaller {
     public static let shared = PlistInstaller()
     private init() {}
 
-    private var nioServer: NIOPlistServer?
-    public var serverId: String { nioServer?.serverId ?? "" }
-    public var port: Int { nioServer?.port ?? 0 }
+    private var gcdServer: GCDPlistServer?
+    public var serverId: String { gcdServer?.serverId ?? "" }
+    public var port: Int { gcdServer?.port ?? 0 }
 
     public func start(ipaURL: URL, bundleId: String, appName: String, version: String) throws -> URL {
         AppLogger.shared.log("PlistInstaller.start: bundleId=\(bundleId), ipa=\(ipaURL.lastPathComponent)")
         AudioKeepAlive.shared.start()
-        let server = NIOPlistServer()
+        let server = GCDPlistServer()
         server.ipaURL = ipaURL
         try server.start()
         server.manifestData = server.makeManifest(bundleId: bundleId, appName: appName, version: version)
-        self.nioServer = server
+        self.gcdServer = server
         guard let url = server.plistURL() else {
             throw PlistError.serverFailed("無法構造 plist URL")
         }
@@ -26,22 +26,22 @@ public class PlistInstaller {
 
     public func stop() {
         AppLogger.shared.log("PlistInstaller.stop")
-        nioServer?.stop()
-        nioServer = nil
+        gcdServer?.stop()
+        gcdServer = nil
         AudioKeepAlive.shared.stop()
     }
 
     public var pendingItmsURL: String {
-        get { nioServer?.pendingItmsURL ?? "" }
-        set { nioServer?.pendingItmsURL = newValue }
+        get { gcdServer?.pendingItmsURL ?? "" }
+        set { gcdServer?.pendingItmsURL = newValue }
     }
 
     public func installPageURL() -> URL? {
-        return nioServer?.installPageURL()
+        return gcdServer?.installPageURL()
     }
 
         public func ipaURLString() -> String? {
-        guard let server = nioServer else { return nil }
+        guard let server = gcdServer else { return nil }
         return "http://\(server.externalHost):\(server.port)/\(server.serverId).ipa"
     }
 
@@ -54,7 +54,7 @@ public func installTriggerURL(plistURL: URL) -> URL? {
     }
 
     public func externalPlistURL(bundleId: String, appName: String, version: String) -> URL? {
-        guard let server = nioServer else { return nil }
+        guard let server = gcdServer else { return nil }
         let ipaURLStr = "http://\(server.externalHost):\(server.port)/\(server.serverId).ipa"
         let base = "https://api.palera.in/genPlist?bundleid=\(bundleId)&name=\(appName)&version=\(version)&fetchurl=\(ipaURLStr)"
         guard let encoded = base.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
