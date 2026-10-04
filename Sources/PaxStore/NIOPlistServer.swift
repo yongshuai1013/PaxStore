@@ -4,6 +4,7 @@ import Network
 #endif
 import NIO
 import NIOHTTP1
+import NIOSSL
 import UIKit
 
 public class NIOPlistServer {
@@ -49,14 +50,35 @@ public class NIOPlistServer {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         self.group = group
 
+        // 載入自簽證書
+        guard let certPath = Bundle.main.path(forResource: "paxstore", ofType: "crt"),
+              let keyPath = Bundle.main.path(forResource: "paxstore", ofType: "key") else {
+            throw PlistError.serverFailed("找不到證書文件")
+        }
+        let cert = try NIOSSLCertificate(file: certPath, format: .pem)
+        let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
+        var tlsConfig = TLSConfiguration.makeServerConfiguration(
+            certificateChain: [.certificate(cert)],
+            privateKey: .privateKey(key)
+        )
+        tlsConfig.minimumTLSVersion = .tlsv12
+        let sslContext = try NIOSSLContext(configuration: tlsConfig)
+
         let server = self
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.backlog, value: 256)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 let httpHandler = HTTPHandler(server: server)
-                return channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true).flatMap {
-                    channel.pipeline.addHandler(httpHandler)
+                do {
+                    let sslHandler = try NIOSSLServerHandler(context: sslContext)
+                    return channel.pipeline.addHandler(sslHandler).flatMap {
+                        channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
+                    }.flatMap {
+                        channel.pipeline.addHandler(httpHandler)
+                    }
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
             }
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -108,7 +130,7 @@ public class NIOPlistServer {
 
     public func plistURL() -> URL? {
         var comps = URLComponents()
-        comps.scheme = "http"
+        comps.scheme = "https"
         comps.host = externalHost
         comps.port = port
         comps.path = "/\(serverId).plist"
@@ -117,7 +139,7 @@ public class NIOPlistServer {
 
     public func installPageURL() -> URL? {
         var comps = URLComponents()
-        comps.scheme = "http"
+        comps.scheme = "https"
         comps.host = externalHost
         comps.port = port
         comps.path = "/install"
