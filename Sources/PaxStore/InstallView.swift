@@ -171,7 +171,7 @@ struct InstallView: View {
                             .font(.caption)
                             .monospacedDigit()
                     }
-
+                    ProgressView(value: Double(progressPercent), total: 100)
                 }
             }
             
