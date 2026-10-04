@@ -84,6 +84,9 @@ jobs:
       - name: Commit xcframework to repo
         working-directory: paxstore
         run: |
+          git lfs install
+          git lfs track "Libraries/IDeviceFFI.xcframework/ios-arm64/*.a"
+          git add .gitattributes
           rm -rf Libraries/IDeviceFFI.xcframework
           mkdir -p Libraries
           cp -r ../build/IDeviceFFI.xcframework Libraries/
