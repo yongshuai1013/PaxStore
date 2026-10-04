@@ -29,11 +29,9 @@ jobs:
           cd sideinstaller/rust-core
           BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
           IPHONEOS_DEPLOYMENT_TARGET=15.0 \
-          cargo build --release --target aarch64-apple-ios \
-            --no-default-features \
-            --features "afc,tcp,installation_proxy,aws-lc"
+          cargo build --release --target aarch64-apple-ios
           # 找生成的靜態庫和頭文件
-          ls -lh ../target/aarch64-apple-ios/release/libidevice_ffi.a
+          ls -lh ../target/aarch64-apple-ios/release/*.a
           find ../target/aarch64-apple-ios/release -name "idevice.h" | head -5
           
       - name: Create xcframework
