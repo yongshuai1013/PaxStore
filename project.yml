@@ -24,9 +24,6 @@ packages:
     branch: main
   EMProxyPkg:
     path: Packages/EMProxy
-  GCDWebServer:
-    url: https://github.com/swisspol/GCDWebServer.git
-    from: 3.7.0
 
 targets:
   PaxStore:
@@ -51,7 +48,6 @@ targets:
         product: NIO
       - package: swift-nio
         product: NIOHTTP1
-      - package: GCDWebServer
       - framework: Libraries/IDeviceFFI.xcframework
         embed: false
     settings:
