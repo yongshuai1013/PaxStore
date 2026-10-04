@@ -10,11 +10,14 @@ jobs:
   build-rust:
     runs-on: macos-latest
     steps:
-      - name: Checkout idevice
+      - name: Checkout SideInstaller rust-core
         uses: actions/checkout@v4
         with:
-          repository: jkcoxson/idevice
-          path: idevice
+          repository: FrizzleM/SideInstaller
+          path: sideinstaller
+          sparse-checkout: |
+            rust-core
+          sparse-checkout-cone-mode: false
           
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -23,7 +26,7 @@ jobs:
           
       - name: Build idevice-ffi for iOS
         run: |
-          cd idevice/ffi
+          cd sideinstaller/rust-core
           BINDGEN_EXTRA_CLANG_ARGS="--sysroot=$(xcrun --sdk iphoneos --show-sdk-path)" \
           IPHONEOS_DEPLOYMENT_TARGET=15.0 \
           cargo build --release --target aarch64-apple-ios \
@@ -36,9 +39,9 @@ jobs:
       - name: Create xcframework
         run: |
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64
-          cp idevice/target/aarch64-apple-ios/release/libidevice_ffi.a build/IDeviceFFI.xcframework/ios-arm64/
+          cp sideinstaller/rust-core/target/aarch64-apple-ios/release/libidevice_ffi.a build/IDeviceFFI.xcframework/ios-arm64/
           # 找頭文件（cbindgen 生成的，可能在不同位置）
-          HEADER=$(find idevice/target/aarch64-apple-ios -name "idevice.h" 2>/dev/null | head -1)
+          HEADER=$(find sideinstaller/rust-core/target/aarch64-apple-ios -name "idevice.h" 2>/dev/null | head -1)
           mkdir -p build/IDeviceFFI.xcframework/ios-arm64/Headers
           if [ -n "$HEADER" ]; then
             cp "$HEADER" build/IDeviceFFI.xcframework/ios-arm64/Headers/
@@ -48,7 +51,7 @@ jobs:
             echo "// placeholder" > build/IDeviceFFI.xcframework/ios-arm64/Headers/idevice.h
           fi
           # 列出所有生成的東西，方便調試
-          find idevice/target/aarch64-apple-ios/release -name "*.a" | head -5
+          find sideinstaller/rust-core/target/aarch64-apple-ios/release -name "*.a" | head -5
           # 寫 Info.plist
           cat > build/IDeviceFFI.xcframework/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
