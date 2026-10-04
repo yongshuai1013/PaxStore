@@ -1,5 +1,4 @@
 import Foundation
-import GCDWebServers
 
 // MARK: - GCDWebServer 版本地安裝服務（LCSign 同款庫）
 final class GCDPlistServer {
