@@ -358,8 +358,19 @@ struct SigningFlowView: View {
         try archive.addEntry(with: "Payload", type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755, provider: emptyProvider)
         for case let url as URL in enumerator {
             let rel = "Payload/" + url.path.replacingOccurrences(of: payload.path + "/", with: "")
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDir {
+            let vals = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if vals?.isSymbolicLink == true {
+                // 軟鏈：保留鏈接目標
+                let dest = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)
+                let destData = (dest ?? "").data(using: .utf8) ?? Data()
+                let provider: (Int64, Int) throws -> Data = { pos, size in
+                    let start = Int(pos)
+                    let end = min(start + size, destData.count)
+                    guard start < end else { return Data() }
+                    return destData[start..<end]
+                }
+                try archive.addEntry(with: rel, type: .symlink, uncompressedSize: Int64(destData.count), modificationDate: Date(), permissions: 0o777, provider: provider)
+            } else if vals?.isDirectory == true {
                 try archive.addEntry(with: rel, type: .directory, uncompressedSize: 0, modificationDate: Date(), permissions: 0o755, provider: emptyProvider)
             } else {
                 try archive.addEntry(with: rel, relativeTo: payload.deletingLastPathComponent(), compressionMethod: .deflate)
